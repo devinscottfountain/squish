@@ -1,0 +1,37 @@
+name: Squish
+options:
+  bundleIdPrefix: com.devinfountain
+  deploymentTarget:
+    macOS: "15.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  Squish:
+    type: application
+    platform: macOS
+    sources: [Squish]
+    info:
+      path: Squish/Info.plist
+      properties:
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Video
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes: [public.movie, public.video, com.compuserve.gif, public.folder]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.devinfountain.squish
+        PRODUCT_NAME: Squish
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Squish
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.video
+        INFOPLIST_KEY_NSHumanReadableCopyright: ""
+        # ffmpeg runs as a child process, so the app can't be sandboxed.
+        ENABLE_APP_SANDBOX: NO
+        ENABLE_HARDENED_RUNTIME: YES
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: "-"

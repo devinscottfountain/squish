@@ -1,0 +1,389 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0BBD42ECD69CFA277683916F /* SquishApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42C0C44445C71A1CECBFD624 /* SquishApp.swift */; };
+		2609C52B3EA9831AE2ADFFDC /* QueueStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1182125C7849E6A6C3D159CD /* QueueStore.swift */; };
+		3D28D80FB1B63E1148099071 /* FFmpegEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 934D9A8B492E9075D8A59544 /* FFmpegEnvironment.swift */; };
+		519C91797090746587458345 /* QueueViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70538AEE5203D090F0314AE6 /* QueueViews.swift */; };
+		52D8BEB829659F7BB6EB8009 /* EncodeSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 529E2160D8F1DA39AE7A6794 /* EncodeSettings.swift */; };
+		60A69434A65130EC70892834 /* Controls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 318BF612BA3988B303F9AA1F /* Controls.swift */; };
+		620BACB879A1F37B59DCB966 /* FFmpegProcess.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BAAD3B65ECF8C540C3FB374 /* FFmpegProcess.swift */; };
+		885B91B12AE0CA92A92EE3AB /* MediaInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F4C422161B7ED4C97FA4173 /* MediaInfo.swift */; };
+		A6BB91432B7F0A652BC7A0B8 /* CommandBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39B6D45350E5CB022A35A2C9 /* CommandBuilder.swift */; };
+		AB0749C30CA605CF6FC7D359 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80B9F99A7D5944CE064FDC72 /* Theme.swift */; };
+		B32B99B3EE16470C17FFFA5A /* BottomToolbar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 345AC3C663CE84B054E5732C /* BottomToolbar.swift */; };
+		ECF8038A73BAE9344DE7C9FF /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DADE30327440E101334B251A /* ContentView.swift */; };
+		F67CF56F783B75FE8D18F730 /* SettingsPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1DAF8BD5518787424E0D80A /* SettingsPanel.swift */; };
+		FCE0C3D7188C3B05921183F6 /* QuickPreset.swift in Sources */ = {isa = PBXBuildFile; fileRef = 868ECE7F73EB8A52E66BC890 /* QuickPreset.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		1182125C7849E6A6C3D159CD /* QueueStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueStore.swift; sourceTree = "<group>"; };
+		1F4C422161B7ED4C97FA4173 /* MediaInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaInfo.swift; sourceTree = "<group>"; };
+		318BF612BA3988B303F9AA1F /* Controls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Controls.swift; sourceTree = "<group>"; };
+		345AC3C663CE84B054E5732C /* BottomToolbar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BottomToolbar.swift; sourceTree = "<group>"; };
+		39B6D45350E5CB022A35A2C9 /* CommandBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandBuilder.swift; sourceTree = "<group>"; };
+		3BAAD3B65ECF8C540C3FB374 /* FFmpegProcess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FFmpegProcess.swift; sourceTree = "<group>"; };
+		42C0C44445C71A1CECBFD624 /* SquishApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SquishApp.swift; sourceTree = "<group>"; };
+		529E2160D8F1DA39AE7A6794 /* EncodeSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EncodeSettings.swift; sourceTree = "<group>"; };
+		5B10CDD2C15B61828CF17577 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		70538AEE5203D090F0314AE6 /* QueueViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueViews.swift; sourceTree = "<group>"; };
+		80B9F99A7D5944CE064FDC72 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		868ECE7F73EB8A52E66BC890 /* QuickPreset.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickPreset.swift; sourceTree = "<group>"; };
+		934D9A8B492E9075D8A59544 /* FFmpegEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FFmpegEnvironment.swift; sourceTree = "<group>"; };
+		C8FDE570F6484BB7F028E723 /* Squish.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Squish.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		DADE30327440E101334B251A /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		E1DAF8BD5518787424E0D80A /* SettingsPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsPanel.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		14B0CA344933D21EB5F42494 /* Engine */ = {
+			isa = PBXGroup;
+			children = (
+				39B6D45350E5CB022A35A2C9 /* CommandBuilder.swift */,
+				934D9A8B492E9075D8A59544 /* FFmpegEnvironment.swift */,
+				3BAAD3B65ECF8C540C3FB374 /* FFmpegProcess.swift */,
+			);
+			path = Engine;
+			sourceTree = "<group>";
+		};
+		16E3BF4ADD7B04E83199A615 /* Squish */ = {
+			isa = PBXGroup;
+			children = (
+				5B10CDD2C15B61828CF17577 /* Info.plist */,
+				42C0C44445C71A1CECBFD624 /* SquishApp.swift */,
+				14B0CA344933D21EB5F42494 /* Engine */,
+				C237A17B87FDA8E0E09F5313 /* Models */,
+				827D28C005A9A9809204EFCA /* Store */,
+				665289B50B0486BFF527C321 /* Views */,
+			);
+			path = Squish;
+			sourceTree = "<group>";
+		};
+		4D8E1C97346834D6B5C169E1 = {
+			isa = PBXGroup;
+			children = (
+				16E3BF4ADD7B04E83199A615 /* Squish */,
+				ADA3A3E95FCB338213374AB7 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		665289B50B0486BFF527C321 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				345AC3C663CE84B054E5732C /* BottomToolbar.swift */,
+				DADE30327440E101334B251A /* ContentView.swift */,
+				318BF612BA3988B303F9AA1F /* Controls.swift */,
+				70538AEE5203D090F0314AE6 /* QueueViews.swift */,
+				E1DAF8BD5518787424E0D80A /* SettingsPanel.swift */,
+				80B9F99A7D5944CE064FDC72 /* Theme.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		827D28C005A9A9809204EFCA /* Store */ = {
+			isa = PBXGroup;
+			children = (
+				1182125C7849E6A6C3D159CD /* QueueStore.swift */,
+			);
+			path = Store;
+			sourceTree = "<group>";
+		};
+		ADA3A3E95FCB338213374AB7 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				C8FDE570F6484BB7F028E723 /* Squish.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		C237A17B87FDA8E0E09F5313 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				529E2160D8F1DA39AE7A6794 /* EncodeSettings.swift */,
+				1F4C422161B7ED4C97FA4173 /* MediaInfo.swift */,
+				868ECE7F73EB8A52E66BC890 /* QuickPreset.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		24B03FEC3EAD78B68AB9E7E7 /* Squish */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = BE78E98ECEDF97B174A713C3 /* Build configuration list for PBXNativeTarget "Squish" */;
+			buildPhases = (
+				0E69D47A803B4E4D7EB42BD6 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Squish;
+			packageProductDependencies = (
+			);
+			productName = Squish;
+			productReference = C8FDE570F6484BB7F028E723 /* Squish.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		6FC6AAE208341CB2CF9209FA /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					24B03FEC3EAD78B68AB9E7E7 = {
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 3D8ECEF47936D4A93AA4980E /* Build configuration list for PBXProject "Squish" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 4D8E1C97346834D6B5C169E1;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				24B03FEC3EAD78B68AB9E7E7 /* Squish */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		0E69D47A803B4E4D7EB42BD6 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B32B99B3EE16470C17FFFA5A /* BottomToolbar.swift in Sources */,
+				A6BB91432B7F0A652BC7A0B8 /* CommandBuilder.swift in Sources */,
+				ECF8038A73BAE9344DE7C9FF /* ContentView.swift in Sources */,
+				60A69434A65130EC70892834 /* Controls.swift in Sources */,
+				52D8BEB829659F7BB6EB8009 /* EncodeSettings.swift in Sources */,
+				3D28D80FB1B63E1148099071 /* FFmpegEnvironment.swift in Sources */,
+				620BACB879A1F37B59DCB966 /* FFmpegProcess.swift in Sources */,
+				885B91B12AE0CA92A92EE3AB /* MediaInfo.swift in Sources */,
+				2609C52B3EA9831AE2ADFFDC /* QueueStore.swift in Sources */,
+				519C91797090746587458345 /* QueueViews.swift in Sources */,
+				FCE0C3D7188C3B05921183F6 /* QuickPreset.swift in Sources */,
+				F67CF56F783B75FE8D18F730 /* SettingsPanel.swift in Sources */,
+				0BBD42ECD69CFA277683916F /* SquishApp.swift in Sources */,
+				AB0749C30CA605CF6FC7D359 /* Theme.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		1A994A9E47392B8FB7122740 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Squish/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Squish;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.video";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.devinfountain.squish;
+				PRODUCT_NAME = Squish;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		4ACC7DCE55FE4F311F81279B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		6842938E4C631BE9E082A4B5 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Squish/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Squish;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.video";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.devinfountain.squish;
+				PRODUCT_NAME = Squish;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		977F93B7254AAC3B73D1A0FD /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		3D8ECEF47936D4A93AA4980E /* Build configuration list for PBXProject "Squish" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				4ACC7DCE55FE4F311F81279B /* Debug */,
+				977F93B7254AAC3B73D1A0FD /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		BE78E98ECEDF97B174A713C3 /* Build configuration list for PBXNativeTarget "Squish" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1A994A9E47392B8FB7122740 /* Debug */,
+				6842938E4C631BE9E082A4B5 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 6FC6AAE208341CB2CF9209FA /* Project object */;
+}
