@@ -13,6 +13,10 @@ struct MediaInfo: Equatable, Sendable {
     var hasAlpha: Bool
     /// VP9 alpha lives in a side channel that only libvpx decodes.
     var needsLibvpxDecoder: Bool
+    var colorTransfer: String
+    var colorPrimaries: String
+    /// "HLG", "HDR10" or "Dolby Vision" when the source is HDR.
+    var hdrFormat: String?
     var hasAudio: Bool
     var audioCodec: String?
     var audioChannels: Int
@@ -23,9 +27,12 @@ struct MediaInfo: Equatable, Sendable {
         if frameRate > 0 { parts.append(String(format: frameRate.rounded() == frameRate ? "%.0f fps" : "%.2f fps", frameRate)) }
         parts.append(videoCodec.uppercased())
         if hasAlpha { parts.append("alpha") }
+        if let hdrFormat { parts.append(hdrFormat) }
         if duration > 0 { parts.append(Format.duration(duration)) }
         return parts.joined(separator: " · ")
     }
+
+    var isHDR: Bool { hdrFormat != nil }
 }
 
 enum MediaProbe {
@@ -61,6 +68,14 @@ enum MediaProbe {
         let duration = Double(output.format?.duration ?? "") ?? Double(video.duration ?? "") ?? 0
         let fps = parseRate(video.avg_frame_rate) ?? parseRate(video.r_frame_rate) ?? 0
 
+        let transfer = video.color_transfer ?? ""
+        let dolbyVision = video.side_data_list?.contains { ($0.side_data_type ?? "").contains("DOVI") } ?? false
+        let hdrFormat: String? = switch transfer {
+        case "arib-std-b67": dolbyVision ? "Dolby Vision" : "HLG"
+        case "smpte2084": dolbyVision ? "Dolby Vision" : "HDR10"
+        default: nil
+        }
+
         return MediaInfo(
             duration: duration,
             sizeBytes: Int64(output.format?.size ?? "") ?? 0,
@@ -72,6 +87,9 @@ enum MediaProbe {
             pixelFormat: pixFmt,
             hasAlpha: hasAlpha,
             needsLibvpxDecoder: video.codec_name == "vp9" && alphaTag == "1",
+            colorTransfer: transfer,
+            colorPrimaries: video.color_primaries ?? "",
+            hdrFormat: hdrFormat,
             hasAudio: audio != nil,
             audioCodec: audio?.codec_name,
             audioChannels: audio?.channels ?? 0,
@@ -89,6 +107,7 @@ enum MediaProbe {
 
 private struct ProbeOutput: Decodable {
     struct SideData: Decodable {
+        var side_data_type: String?
         var rotation: Double?
     }
 
@@ -98,6 +117,8 @@ private struct ProbeOutput: Decodable {
         var width: Int?
         var height: Int?
         var pix_fmt: String?
+        var color_transfer: String?
+        var color_primaries: String?
         var r_frame_rate: String?
         var avg_frame_rate: String?
         var channels: Int?

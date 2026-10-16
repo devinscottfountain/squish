@@ -6,23 +6,23 @@ struct ContentView: View {
     @State private var dropTargeted = false
 
     var body: some View {
+        @Bindable var store = store
         ZStack(alignment: .bottom) {
-            Backdrop()
+            // A light dark tint over the frosted window so glass panels read against any wallpaper.
+            Color.black.opacity(0.28).ignoresSafeArea()
 
-            HStack(alignment: .top, spacing: 16) {
-                VStack(spacing: 14) {
-                    HeaderBar()
-                    QueueCard()
-                }
+            HStack(alignment: .top, spacing: 14) {
+                QueueCard()
                 SettingsPanel()
                     .frame(width: 370)
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 38)
-            .padding(.bottom, 96)
+            .padding(.horizontal, 14)
+            .padding(.top, 34) // just clears the traffic lights
+            .padding(.bottom, 88)
+            .ignoresSafeArea(edges: .top)
 
             BottomToolbar(showCommand: $showCommand)
-                .padding(.bottom, 22)
+                .padding(.bottom, 18)
 
             if dropTargeted {
                 RoundedRectangle(cornerRadius: 26, style: .continuous)
@@ -43,31 +43,23 @@ struct ContentView: View {
         .frame(minWidth: 960, minHeight: 640)
         .dropDestination(for: URL.self) { urls, _ in
             store.add(urls: urls)
+            Delight.thud()
             return true
         } isTargeted: { targeted in
             withAnimation(.easeOut(duration: 0.15)) { dropTargeted = targeted }
         }
         .sheet(isPresented: $showCommand) { CommandSheet() }
-        .onChange(of: store.settings) { store.persist() }
+        .sheet(item: $store.previewJob) { job in PreviewSheet(job: job) }
+        .onChange(of: store.settings) {
+            store.persist()
+            store.scheduleEstimates()
+        }
         .onChange(of: store.mode) { store.persist() }
         .task {
             await store.environment.refresh()
             store.reprobeAll()
         }
         .preferredColorScheme(.dark)
-    }
-}
-
-/// Soft painted blobs behind the cards, a quiet nod to the colorful references.
-struct Backdrop: View {
-    var body: some View {
-        ZStack {
-            Theme.window
-            Circle().fill(Theme.orange).frame(width: 420).blur(radius: 140).opacity(0.22).offset(x: -380, y: -260)
-            Circle().fill(Theme.lilac).frame(width: 460).blur(radius: 150).opacity(0.18).offset(x: 420, y: 300)
-            Circle().fill(Theme.green).frame(width: 360).blur(radius: 150).opacity(0.12).offset(x: -260, y: 360)
-            Circle().fill(Theme.yellow).frame(width: 260).blur(radius: 130).opacity(0.10).offset(x: 300, y: -320)
-        }
-        .ignoresSafeArea()
+        .containerBackground(.ultraThinMaterial, for: .window)
     }
 }

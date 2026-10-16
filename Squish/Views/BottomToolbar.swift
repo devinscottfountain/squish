@@ -28,9 +28,8 @@ struct PillGroup<Content: View>: View {
     var body: some View {
         HStack(spacing: 4) { content }
             .padding(6)
-            .background(Capsule().fill(Theme.card))
-            .overlay(Capsule().strokeBorder(Theme.stroke))
-            .shadow(color: .black.opacity(0.4), radius: 18, y: 8)
+            .glass(in: Capsule())
+            .shadow(color: .black.opacity(0.3), radius: 16, y: 8)
     }
 }
 
@@ -52,6 +51,8 @@ struct ToolButton: View {
         }
         .buttonStyle(.plain)
         .help(help)
+        .accessibilityLabel(help)
+        .accessibilityAddTraits(active ? .isSelected : [])
         .onHover { hovering = $0 }
     }
 }
@@ -76,20 +77,37 @@ struct StatsPill: View {
             if doneIn > 0 {
                 Text(Format.bytes(doneIn)).foregroundStyle(Theme.secondary)
                 Image(systemName: "arrow.right").font(.system(size: 10, weight: .bold)).foregroundStyle(Theme.tertiary)
-                Text(Format.bytes(doneOut)).foregroundStyle(Theme.green)
+                CountUpText(value: Double(doneOut)) { Format.bytes(Int64($0)) }
+                    .foregroundStyle(Theme.green)
                 let saved = 1 - Double(doneOut) / Double(doneIn)
-                Text(saved >= 0 ? "−\(Int((saved * 100).rounded()))%" : "+\(Int((-saved * 100).rounded()))%")
+                CountUpText(value: saved * 100) { $0 >= 0 ? "−\(Int($0.rounded()))%" : "+\(Int((-$0).rounded()))%" }
                     .foregroundStyle(saved >= 0 ? Theme.green : Theme.red)
             } else if inputTotal > 0 {
                 Text(Format.bytes(inputTotal)).foregroundStyle(Theme.secondary)
+                let pending = jobs.filter { $0.status == .ready }
+                if !pending.isEmpty, pending.allSatisfy({ $0.estimate != nil && !$0.isEstimating }) {
+                    let estimate = pending.reduce(Int64(0)) { $0 + ($1.estimate ?? 0) }
+                    let pendingIn = pending.reduce(Int64(0)) { $0 + $1.inputSize }
+                    Image(systemName: "arrow.right").font(.system(size: 10, weight: .bold)).foregroundStyle(Theme.tertiary)
+                    Text("≈ \(Format.bytes(estimate))").foregroundStyle(Theme.green.opacity(0.75))
+                        .help("Estimated from a short sample encode with the current settings")
+                    if pendingIn > 0 {
+                        let saved = 1 - Double(estimate) / Double(pendingIn)
+                        Text(saved >= 0 ? "−\(Int((saved * 100).rounded()))%" : "+\(Int((-saved * 100).rounded()))%")
+                            .foregroundStyle((saved >= 0 ? Theme.green : Theme.red).opacity(0.75))
+                    }
+                }
             }
         }
         .font(.system(size: 14, weight: .medium).monospacedDigit())
+        .accessibilityElement(children: .combine)
+        .help(store.lifetimeFiles > 0
+              ? "You've saved \(Format.bytes(store.lifetimeSavedBytes)) across \(store.lifetimeFiles) \(store.lifetimeFiles == 1 ? "file" : "files") with Squish"
+              : "Savings show up here as files finish")
         .padding(.horizontal, 18)
         .frame(height: 50)
-        .background(Capsule().fill(Theme.card))
-        .overlay(Capsule().strokeBorder(Theme.stroke))
-        .shadow(color: .black.opacity(0.4), radius: 18, y: 8)
+        .glass(in: Capsule())
+        .shadow(color: .black.opacity(0.3), radius: 16, y: 8)
     }
 }
 
@@ -99,11 +117,12 @@ struct StartButton: View {
 
     var body: some View {
         let running = store.isRunning
-        let count = store.runnableCount
+        let count = store.startableCount
+        let problem = store.startProblem
         let enabled = running || (count > 0 && store.environment.isAvailable)
 
         Button {
-            running ? store.stop() : store.start()
+            running ? store.stop() : store.start(only: nil)
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: running ? "stop.fill" : "play.fill")
@@ -121,18 +140,17 @@ struct StartButton: View {
             .foregroundStyle(running ? Theme.red : .white)
             .padding(.horizontal, 20)
             .frame(height: 50)
-            .background(Capsule().fill(running ? Theme.card : Theme.orange))
-            .overlay(Capsule().strokeBorder(running ? Theme.red.opacity(0.4) : .white.opacity(0.15)))
-            .brightness(hovering && enabled ? 0.05 : 0)
-            .shadow(color: (running ? Color.black : Theme.orange).opacity(0.4), radius: 18, y: 8)
             .contentShape(Capsule())
+            .glass(in: Capsule(), tint: running ? nil : Theme.orange.opacity(0.85), interactive: true)
+            .brightness(hovering && enabled ? 0.05 : 0)
+            .shadow(color: (running ? Color.black : Theme.orange).opacity(0.35), radius: 16, y: 8)
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
         .opacity(enabled ? 1 : 0.45)
         .onHover { hovering = $0 }
         .keyboardShortcut(.return, modifiers: .command)
-        .help(running ? "Stop encoding" : "Start encoding (⌘↩)")
+        .help(running ? "Stop encoding" : (problem ?? "Start encoding (⌘↩)"))
     }
 }
 
@@ -199,7 +217,44 @@ struct CommandSheet: View {
         }
         .padding(22)
         .frame(width: 640)
-        .background(Theme.card)
+        .presentationBackground(.thinMaterial)
         .preferredColorScheme(.dark)
     }
+}
+
+// MARK: - Count-up
+
+/// A number that rolls up to its new value instead of jumping.
+struct CountUpText: View {
+    let value: Double
+    let format: (Double) -> String
+    @State private var shown: Double = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        CountingText(value: shown, format: format)
+            .onAppear { roll(to: value) }
+            .onChange(of: value) { roll(to: value) }
+            .accessibilityLabel(format(value))
+    }
+
+    private func roll(to target: Double) {
+        if reduceMotion {
+            shown = target
+        } else {
+            withAnimation(.easeOut(duration: 0.9)) { shown = target }
+        }
+    }
+}
+
+private struct CountingText: View, Animatable {
+    var value: Double
+    let format: (Double) -> String
+
+    var animatableData: Double {
+        get { value }
+        set { value = newValue }
+    }
+
+    var body: some View { Text(format(value)) }
 }

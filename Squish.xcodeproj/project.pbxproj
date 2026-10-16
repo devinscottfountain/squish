@@ -7,39 +7,70 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		08ED6E6774321119355AD120 /* Delight.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B66C3781480A55207C5A6FF /* Delight.swift */; };
 		0BBD42ECD69CFA277683916F /* SquishApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42C0C44445C71A1CECBFD624 /* SquishApp.swift */; };
+		0BDD1A96E8EAC3C09888894A /* CommandBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2009A7018BF9351AC4C25F03 /* CommandBuilderTests.swift */; };
+		17CB95F5653097DDDD6CB2CB /* PreviewSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFFAA62B0D8D462BC94A7D45 /* PreviewSheet.swift */; };
 		2609C52B3EA9831AE2ADFFDC /* QueueStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1182125C7849E6A6C3D159CD /* QueueStore.swift */; };
+		2F15EF574C8883251404C8AF /* SampleEncoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC6BB98CE5D6A05F029340D5 /* SampleEncoder.swift */; };
 		3D28D80FB1B63E1148099071 /* FFmpegEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 934D9A8B492E9075D8A59544 /* FFmpegEnvironment.swift */; };
 		519C91797090746587458345 /* QueueViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70538AEE5203D090F0314AE6 /* QueueViews.swift */; };
 		52D8BEB829659F7BB6EB8009 /* EncodeSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 529E2160D8F1DA39AE7A6794 /* EncodeSettings.swift */; };
 		60A69434A65130EC70892834 /* Controls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 318BF612BA3988B303F9AA1F /* Controls.swift */; };
 		620BACB879A1F37B59DCB966 /* FFmpegProcess.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BAAD3B65ECF8C540C3FB374 /* FFmpegProcess.swift */; };
+		860A6AC933C1F531CF76AD43 /* squish.wav in Resources */ = {isa = PBXBuildFile; fileRef = 55D197B38029E93177F3576B /* squish.wav */; };
 		885B91B12AE0CA92A92EE3AB /* MediaInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F4C422161B7ED4C97FA4173 /* MediaInfo.swift */; };
+		94E809862E303A5B7C45CEC4 /* SettingsWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9139E87B136184BF797D1234 /* SettingsWindow.swift */; };
 		A6BB91432B7F0A652BC7A0B8 /* CommandBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39B6D45350E5CB022A35A2C9 /* CommandBuilder.swift */; };
 		AB0749C30CA605CF6FC7D359 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80B9F99A7D5944CE064FDC72 /* Theme.swift */; };
 		B32B99B3EE16470C17FFFA5A /* BottomToolbar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 345AC3C663CE84B054E5732C /* BottomToolbar.swift */; };
+		D3EBD862140B0116B2BAF56B /* AboutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A9DB8E1094F024C4CD7B574 /* AboutView.swift */; };
+		D64CF96031AA99A1ED96E78E /* QueueLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78975306EEEAC5292AE9A991 /* QueueLifecycle.swift */; };
+		DB2FE761949575BEEC7A3E24 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F9E1D810004300E59880DD22 /* Assets.xcassets */; };
+		DF2AB5B01427CA9AD986BD13 /* SavedPreset.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D44F15C5DA75A214C22B8A0 /* SavedPreset.swift */; };
 		ECF8038A73BAE9344DE7C9FF /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DADE30327440E101334B251A /* ContentView.swift */; };
 		F67CF56F783B75FE8D18F730 /* SettingsPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1DAF8BD5518787424E0D80A /* SettingsPanel.swift */; };
 		FCE0C3D7188C3B05921183F6 /* QuickPreset.swift in Sources */ = {isa = PBXBuildFile; fileRef = 868ECE7F73EB8A52E66BC890 /* QuickPreset.swift */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		FE9DA5866DFDBF3EFA659A8E /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 6FC6AAE208341CB2CF9209FA /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 24B03FEC3EAD78B68AB9E7E7;
+			remoteInfo = Squish;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
 		1182125C7849E6A6C3D159CD /* QueueStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueStore.swift; sourceTree = "<group>"; };
 		1F4C422161B7ED4C97FA4173 /* MediaInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaInfo.swift; sourceTree = "<group>"; };
+		2009A7018BF9351AC4C25F03 /* CommandBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandBuilderTests.swift; sourceTree = "<group>"; };
 		318BF612BA3988B303F9AA1F /* Controls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Controls.swift; sourceTree = "<group>"; };
 		345AC3C663CE84B054E5732C /* BottomToolbar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BottomToolbar.swift; sourceTree = "<group>"; };
 		39B6D45350E5CB022A35A2C9 /* CommandBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandBuilder.swift; sourceTree = "<group>"; };
 		3BAAD3B65ECF8C540C3FB374 /* FFmpegProcess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FFmpegProcess.swift; sourceTree = "<group>"; };
 		42C0C44445C71A1CECBFD624 /* SquishApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SquishApp.swift; sourceTree = "<group>"; };
+		4D44F15C5DA75A214C22B8A0 /* SavedPreset.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedPreset.swift; sourceTree = "<group>"; };
 		529E2160D8F1DA39AE7A6794 /* EncodeSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EncodeSettings.swift; sourceTree = "<group>"; };
+		55D197B38029E93177F3576B /* squish.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = squish.wav; sourceTree = "<group>"; };
 		5B10CDD2C15B61828CF17577 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		70538AEE5203D090F0314AE6 /* QueueViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueViews.swift; sourceTree = "<group>"; };
+		78975306EEEAC5292AE9A991 /* QueueLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueLifecycle.swift; sourceTree = "<group>"; };
+		7B66C3781480A55207C5A6FF /* Delight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Delight.swift; sourceTree = "<group>"; };
 		80B9F99A7D5944CE064FDC72 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		868ECE7F73EB8A52E66BC890 /* QuickPreset.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickPreset.swift; sourceTree = "<group>"; };
+		9139E87B136184BF797D1234 /* SettingsWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindow.swift; sourceTree = "<group>"; };
 		934D9A8B492E9075D8A59544 /* FFmpegEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FFmpegEnvironment.swift; sourceTree = "<group>"; };
+		9A9DB8E1094F024C4CD7B574 /* AboutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutView.swift; sourceTree = "<group>"; };
+		B324894F9353A05B27ACE8D7 /* SquishTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SquishTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C8FDE570F6484BB7F028E723 /* Squish.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Squish.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		CFFAA62B0D8D462BC94A7D45 /* PreviewSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewSheet.swift; sourceTree = "<group>"; };
 		DADE30327440E101334B251A /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		E1DAF8BD5518787424E0D80A /* SettingsPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsPanel.swift; sourceTree = "<group>"; };
+		F9E1D810004300E59880DD22 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		FC6BB98CE5D6A05F029340D5 /* SampleEncoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleEncoder.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -47,8 +78,10 @@
 			isa = PBXGroup;
 			children = (
 				39B6D45350E5CB022A35A2C9 /* CommandBuilder.swift */,
+				7B66C3781480A55207C5A6FF /* Delight.swift */,
 				934D9A8B492E9075D8A59544 /* FFmpegEnvironment.swift */,
 				3BAAD3B65ECF8C540C3FB374 /* FFmpegProcess.swift */,
+				FC6BB98CE5D6A05F029340D5 /* SampleEncoder.swift */,
 			);
 			path = Engine;
 			sourceTree = "<group>";
@@ -56,10 +89,12 @@
 		16E3BF4ADD7B04E83199A615 /* Squish */ = {
 			isa = PBXGroup;
 			children = (
+				F9E1D810004300E59880DD22 /* Assets.xcassets */,
 				5B10CDD2C15B61828CF17577 /* Info.plist */,
 				42C0C44445C71A1CECBFD624 /* SquishApp.swift */,
 				14B0CA344933D21EB5F42494 /* Engine */,
 				C237A17B87FDA8E0E09F5313 /* Models */,
+				7960E149E2026E2D0FA91D14 /* Resources */,
 				827D28C005A9A9809204EFCA /* Store */,
 				665289B50B0486BFF527C321 /* Views */,
 			);
@@ -70,6 +105,7 @@
 			isa = PBXGroup;
 			children = (
 				16E3BF4ADD7B04E83199A615 /* Squish */,
+				C27898862D82F8763CE29BE4 /* SquishTests */,
 				ADA3A3E95FCB338213374AB7 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -77,19 +113,31 @@
 		665289B50B0486BFF527C321 /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				9A9DB8E1094F024C4CD7B574 /* AboutView.swift */,
 				345AC3C663CE84B054E5732C /* BottomToolbar.swift */,
 				DADE30327440E101334B251A /* ContentView.swift */,
 				318BF612BA3988B303F9AA1F /* Controls.swift */,
+				CFFAA62B0D8D462BC94A7D45 /* PreviewSheet.swift */,
 				70538AEE5203D090F0314AE6 /* QueueViews.swift */,
 				E1DAF8BD5518787424E0D80A /* SettingsPanel.swift */,
+				9139E87B136184BF797D1234 /* SettingsWindow.swift */,
 				80B9F99A7D5944CE064FDC72 /* Theme.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
 		};
+		7960E149E2026E2D0FA91D14 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				55D197B38029E93177F3576B /* squish.wav */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
 		827D28C005A9A9809204EFCA /* Store */ = {
 			isa = PBXGroup;
 			children = (
+				78975306EEEAC5292AE9A991 /* QueueLifecycle.swift */,
 				1182125C7849E6A6C3D159CD /* QueueStore.swift */,
 			);
 			path = Store;
@@ -99,6 +147,7 @@
 			isa = PBXGroup;
 			children = (
 				C8FDE570F6484BB7F028E723 /* Squish.app */,
+				B324894F9353A05B27ACE8D7 /* SquishTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -109,8 +158,17 @@
 				529E2160D8F1DA39AE7A6794 /* EncodeSettings.swift */,
 				1F4C422161B7ED4C97FA4173 /* MediaInfo.swift */,
 				868ECE7F73EB8A52E66BC890 /* QuickPreset.swift */,
+				4D44F15C5DA75A214C22B8A0 /* SavedPreset.swift */,
 			);
 			path = Models;
+			sourceTree = "<group>";
+		};
+		C27898862D82F8763CE29BE4 /* SquishTests */ = {
+			isa = PBXGroup;
+			children = (
+				2009A7018BF9351AC4C25F03 /* CommandBuilderTests.swift */,
+			);
+			path = SquishTests;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -121,6 +179,7 @@
 			buildConfigurationList = BE78E98ECEDF97B174A713C3 /* Build configuration list for PBXNativeTarget "Squish" */;
 			buildPhases = (
 				0E69D47A803B4E4D7EB42BD6 /* Sources */,
+				3B216287129CF94FDE7709A8 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -132,6 +191,24 @@
 			productName = Squish;
 			productReference = C8FDE570F6484BB7F028E723 /* Squish.app */;
 			productType = "com.apple.product-type.application";
+		};
+		76B2161AB0E5892EDBDB3D8C /* SquishTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 8B7F040C832E2DE285362D3F /* Build configuration list for PBXNativeTarget "SquishTests" */;
+			buildPhases = (
+				414DBBC5AEDC5E238F2DE5C9 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				65AD0C97752AC5BCB4FEA85B /* PBXTargetDependency */,
+			);
+			name = SquishTests;
+			packageProductDependencies = (
+			);
+			productName = SquishTests;
+			productReference = B324894F9353A05B27ACE8D7 /* SquishTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
 		};
 /* End PBXNativeTarget section */
 
@@ -162,35 +239,89 @@
 			projectRoot = "";
 			targets = (
 				24B03FEC3EAD78B68AB9E7E7 /* Squish */,
+				76B2161AB0E5892EDBDB3D8C /* SquishTests */,
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		3B216287129CF94FDE7709A8 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DB2FE761949575BEEC7A3E24 /* Assets.xcassets in Resources */,
+				860A6AC933C1F531CF76AD43 /* squish.wav in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		0E69D47A803B4E4D7EB42BD6 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D3EBD862140B0116B2BAF56B /* AboutView.swift in Sources */,
 				B32B99B3EE16470C17FFFA5A /* BottomToolbar.swift in Sources */,
 				A6BB91432B7F0A652BC7A0B8 /* CommandBuilder.swift in Sources */,
 				ECF8038A73BAE9344DE7C9FF /* ContentView.swift in Sources */,
 				60A69434A65130EC70892834 /* Controls.swift in Sources */,
+				08ED6E6774321119355AD120 /* Delight.swift in Sources */,
 				52D8BEB829659F7BB6EB8009 /* EncodeSettings.swift in Sources */,
 				3D28D80FB1B63E1148099071 /* FFmpegEnvironment.swift in Sources */,
 				620BACB879A1F37B59DCB966 /* FFmpegProcess.swift in Sources */,
 				885B91B12AE0CA92A92EE3AB /* MediaInfo.swift in Sources */,
+				17CB95F5653097DDDD6CB2CB /* PreviewSheet.swift in Sources */,
+				D64CF96031AA99A1ED96E78E /* QueueLifecycle.swift in Sources */,
 				2609C52B3EA9831AE2ADFFDC /* QueueStore.swift in Sources */,
 				519C91797090746587458345 /* QueueViews.swift in Sources */,
 				FCE0C3D7188C3B05921183F6 /* QuickPreset.swift in Sources */,
+				2F15EF574C8883251404C8AF /* SampleEncoder.swift in Sources */,
+				DF2AB5B01427CA9AD986BD13 /* SavedPreset.swift in Sources */,
 				F67CF56F783B75FE8D18F730 /* SettingsPanel.swift in Sources */,
+				94E809862E303A5B7C45CEC4 /* SettingsWindow.swift in Sources */,
 				0BBD42ECD69CFA277683916F /* SquishApp.swift in Sources */,
 				AB0749C30CA605CF6FC7D359 /* Theme.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		414DBBC5AEDC5E238F2DE5C9 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0BDD1A96E8EAC3C09888894A /* CommandBuilderTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		65AD0C97752AC5BCB4FEA85B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 24B03FEC3EAD78B68AB9E7E7 /* Squish */;
+			targetProxy = FE9DA5866DFDBF3EFA659A8E /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		015F8A794D575CF354A869D0 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_IDENTITY = "-";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.devinfountain.squish.tests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Squish.app/Contents/MacOS/Squish";
+			};
+			name = Debug;
+		};
 		1A994A9E47392B8FB7122740 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -204,7 +335,7 @@
 				INFOPLIST_FILE = Squish/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Squish;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.video";
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "© 2026 Devin Fountain";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -215,10 +346,29 @@
 			};
 			name = Debug;
 		};
+		23AEDDD0EB24B4E9BFE44916 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_IDENTITY = "-";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.devinfountain.squish.tests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Squish.app/Contents/MacOS/Squish";
+			};
+			name = Release;
+		};
 		4ACC7DCE55FE4F311F81279B /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
@@ -253,6 +403,7 @@
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
+				EXCLUDED_ARCHS = x86_64;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -293,7 +444,7 @@
 				INFOPLIST_FILE = Squish/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Squish;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.video";
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "© 2026 Devin Fountain";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -308,6 +459,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
@@ -342,6 +494,7 @@
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				EXCLUDED_ARCHS = x86_64;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
@@ -370,6 +523,15 @@
 			buildConfigurations = (
 				4ACC7DCE55FE4F311F81279B /* Debug */,
 				977F93B7254AAC3B73D1A0FD /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		8B7F040C832E2DE285362D3F /* Build configuration list for PBXNativeTarget "SquishTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				015F8A794D575CF354A869D0 /* Debug */,
+				23AEDDD0EB24B4E9BFE44916 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

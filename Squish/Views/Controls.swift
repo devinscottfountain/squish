@@ -1,14 +1,41 @@
 import SwiftUI
 
+extension View {
+    /// Frosted glass surface. Liquid Glass on macOS 26, material plus a lit edge before that.
+    @ViewBuilder
+    func glass<S: InsettableShape>(in shape: S, tint: Color? = nil, interactive: Bool = false) -> some View {
+        if #available(macOS 26.0, *) {
+            self.glassEffect(liquidGlass(tint: tint, interactive: interactive), in: shape)
+        } else {
+            self
+                .background {
+                    ZStack {
+                        shape.fill(.ultraThinMaterial)
+                        if let tint { shape.fill(tint.opacity(0.85)) }
+                    }
+                }
+                .overlay(shape.strokeBorder(Theme.glassEdge, lineWidth: 1))
+        }
+    }
+}
+
+@available(macOS 26.0, *)
+private func liquidGlass(tint: Color?, interactive: Bool) -> Glass {
+    var glass = Glass.regular
+    if let tint { glass = glass.tint(tint) }
+    if interactive { glass = glass.interactive() }
+    return glass
+}
+
 struct Card<Content: View>: View {
     @ViewBuilder var content: Content
 
     var body: some View {
+        let shape = RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
         content
-            .background(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous).strokeBorder(Theme.stroke))
-            .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
-            .shadow(color: .black.opacity(0.35), radius: 24, y: 12)
+            .clipShape(shape)
+            .glass(in: shape)
+            .shadow(color: .black.opacity(0.25), radius: 20, y: 10)
     }
 }
 
@@ -44,6 +71,10 @@ struct PillSegmented<T: Hashable>: View {
                     .onTapGesture {
                         withAnimation(.snappy(duration: 0.22)) { selection = option }
                     }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(label(option))
+                    .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+                    .accessibilityAction { selection = option }
             }
         }
         .padding(3)
@@ -55,19 +86,25 @@ struct PillMenu<T: Hashable>: View {
     @Binding var selection: T
     let options: [T]
     let label: (T) -> String
+    /// Why an option can't be picked right now (e.g. a missing ffmpeg library), or nil if it can.
+    var unavailable: (T) -> String? = { _ in nil }
 
     var body: some View {
         Menu {
             ForEach(options, id: \.self) { option in
+                let reason = unavailable(option)
                 Button {
                     selection = option
                 } label: {
                     if option == selection {
                         Label(label(option), systemImage: "checkmark")
+                    } else if let reason {
+                        Text("\(label(option)) — needs \(reason)")
                     } else {
                         Text(label(option))
                     }
                 }
+                .disabled(reason != nil && option != selection)
             }
         } label: {
             HStack(spacing: 6) {
@@ -93,6 +130,8 @@ struct PillMenu<T: Hashable>: View {
 struct SettingRow<Control: View>: View {
     let title: String
     var hint: String? = nil
+    /// Merge the title and control into one VoiceOver element. Turn off for rows with several controls.
+    var combine = true
     @ViewBuilder var control: Control
 
     var body: some View {
@@ -112,6 +151,7 @@ struct SettingRow<Control: View>: View {
             control
         }
         .frame(minHeight: 28)
+        .accessibilityElement(children: combine ? .combine : .contain)
     }
 }
 
@@ -159,6 +199,8 @@ struct SliderRow: View {
             }
             .controlSize(.small)
             .tint(Theme.orange)
+            .accessibilityLabel(title)
+            .accessibilityValue(format(value))
             if leading != nil || trailing != nil {
                 HStack {
                     Text(leading ?? "")
@@ -239,11 +281,13 @@ struct ChipRow<T: Hashable>: View {
     @Binding var selection: T
     let options: [T]
     let label: (T) -> String
+    var unavailable: (T) -> String? = { _ in nil }
 
     var body: some View {
         HStack(spacing: 6) {
             ForEach(options, id: \.self) { option in
                 let selected = option == selection
+                let reason = unavailable(option)
                 Button {
                     withAnimation(.snappy(duration: 0.2)) { selection = option }
                 } label: {
@@ -257,6 +301,9 @@ struct ChipRow<T: Hashable>: View {
                         .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
+                .disabled(reason != nil && !selected)
+                .opacity(reason != nil && !selected ? 0.4 : 1)
+                .help(reason.map { "Needs \($0), which this ffmpeg doesn't include" } ?? "")
             }
         }
     }
@@ -311,6 +358,8 @@ struct SettingsSection<Content: View>: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(badge.map { "\(title), \($0)" } ?? title)
+            .accessibilityValue(expanded ? "Expanded" : "Collapsed")
 
             if expanded {
                 VStack(alignment: .leading, spacing: 12) {
@@ -322,7 +371,8 @@ struct SettingsSection<Content: View>: View {
             }
         }
         .padding(.horizontal, 12)
-        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Theme.raised.opacity(0.55)))
+        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.white.opacity(0.045)))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Theme.glassEdge.opacity(0.6), lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 }

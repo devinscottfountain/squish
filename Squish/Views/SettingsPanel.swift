@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsPanel: View {
     @Environment(QueueStore.self) private var store
+    @State private var presetName = ""
 
     var body: some View {
         @Bindable var store = store
@@ -27,6 +28,17 @@ struct SettingsPanel: View {
                 SettingsSummary()
             }
         }
+        .alert("Save preset", isPresented: $store.isNamingPreset) {
+            TextField("Name", text: $presetName)
+            Button("Save") {
+                store.saveCurrentAsPreset(named: presetName)
+                presetName = ""
+            }
+            .disabled(presetName.trimmingCharacters(in: .whitespaces).isEmpty)
+            Button("Cancel", role: .cancel) { presetName = "" }
+        } message: {
+            Text(store.settings.summaryText)
+        }
     }
 }
 
@@ -40,48 +52,22 @@ struct SettingsSummary: View {
             Image(systemName: "chevron.left.forwardslash.chevron.right")
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(Theme.tertiary)
-            Text(summary(s))
-                .font(Theme.mono)
-                .foregroundStyle(Theme.secondary)
-                .lineLimit(1)
-                .truncationMode(.tail)
+            if let problem = store.environment.problem(with: s) {
+                Text(problem)
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(Theme.red)
+                    .lineLimit(2)
+            } else {
+                Text(s.summaryText)
+                    .font(Theme.mono)
+                    .foregroundStyle(Theme.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 11)
-    }
-
-    private func summary(_ s: EncodeSettings) -> String {
-        var parts = [s.container.label]
-        if !s.container.isAnimatedImage {
-            var codec = s.videoCodec.label
-            if s.videoCodec == .prores { codec += " \(s.proresProfile.label)" }
-            if s.hardwareEncoding { codec += " (HW)" }
-            parts.append(codec)
-            if s.videoCodec != .prores && s.videoCodec != .copy {
-                switch s.rateControl {
-                case .quality:
-                    if let q = CommandBuilder.qualityParameter(for: s) {
-                        parts.append(q.flag == "-crf" ? "CRF \(q.value)" : "Q \(q.value)")
-                    }
-                case .bitrate, .constant: parts.append("\(s.videoBitrateKbps) kbps")
-                case .targetSize: parts.append("≤ \(num(s.targetSizeMB)) MB")
-                }
-            }
-        }
-        if s.resolution != .original { parts.append(s.resolution.label) }
-        if let fps = s.targetFrameRate { parts.append("\(num(fps)) fps") }
-        if s.playbackSpeed != 1 { parts.append("\(num(s.playbackSpeed))×") }
-        if !s.container.isAnimatedImage {
-            if s.audioCodec == .none {
-                parts.append("no audio")
-            } else if s.audioCodec.isLossy {
-                parts.append("\(s.audioCodec.label) \(s.audioBitrateKbps)k")
-            } else {
-                parts.append(s.audioCodec.label)
-            }
-        }
-        return parts.joined(separator: " · ")
     }
 }
 
@@ -91,7 +77,8 @@ struct SimpleSettingsView: View {
     @Environment(QueueStore.self) private var store
 
     private let columns = [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)]
-    private let formats: [Container] = [.mp4, .mov, .webm, .gif]
+    /// M4A stands in for every audio format here and is labeled "Audio".
+    private let formats: [Container] = [.mp4, .mov, .webm, .gif, .m4a]
     private let sizes: [Double] = [5, 10, 25, 50, 100]
 
     var body: some View {
@@ -103,7 +90,8 @@ struct SimpleSettingsView: View {
                     SectionLabel("Start from")
                     LazyVGrid(columns: columns, spacing: 8) {
                         ForEach(QuickPreset.all) { preset in
-                            PresetTile(preset: preset, selected: store.selectedPresetID == preset.id) {
+                            PresetTile(preset: preset, selected: store.selectedPresetID == preset.id,
+                                       unavailable: store.problem(with: preset)) {
                                 store.apply(preset)
                             }
                         }
@@ -111,11 +99,52 @@ struct SimpleSettingsView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 10) {
-                    SectionLabel("Format")
-                    ChipRow(selection: store.bind(\.container), options: formats) { $0.label }
+                    SectionLabel("Your presets")
+                    LazyVGrid(columns: columns, spacing: 8) {
+                        ForEach(store.savedPresets) { preset in
+                            PresetTile(name: preset.name, detail: preset.settings.summaryText, symbol: "star.fill",
+                                       tint: Theme.lilac, selected: store.selectedPresetID == preset.selectionID) {
+                                store.apply(preset)
+                            }
+                            .contextMenu {
+                                Button("Update with Current Settings") { store.updatePreset(preset) }
+                                Divider()
+                                Button("Delete", role: .destructive) { store.deletePreset(preset) }
+                            }
+                        }
+                        SavePresetTile { store.isNamingPreset = true }
+                    }
                 }
 
-                if s.container.isAnimatedImage {
+                VStack(alignment: .leading, spacing: 10) {
+                    SectionLabel("Format")
+                    ChipRow(selection: formatChoice, options: formats) { $0 == .m4a ? "Audio" : $0.label } unavailable: {
+                        store.environment.missingLibrary(for: $0)
+                    }
+                }
+
+                if s.container.isAudioOnly {
+                    VStack(alignment: .leading, spacing: 12) {
+                        SectionLabel("Audio")
+                        ChipRow(selection: store.bind(\.container), options: Container.audioFormats) { $0.label }
+                        if s.container == .m4a {
+                            PillSegmented(selection: store.bind(\.audioCodec), options: [AudioCodec.aac, .alac], stretch: true) {
+                                $0 == .aac ? "AAC" : "Lossless (ALAC)"
+                            }
+                        }
+                        if s.audioCodec.isLossy {
+                            SettingRow(title: "Bitrate", hint: s.audioBitrateKbps >= 256 ? "Transparent for most music" : nil) {
+                                PillMenu(selection: store.bind(\.audioBitrateKbps), options: [96, 128, 160, 192, 256, 320]) { "\($0) kbps" }
+                            }
+                        } else {
+                            Note(text: "Lossless keeps every bit of the original sound. Files are much larger.",
+                                 tint: Theme.lilac, symbol: "info.circle.fill")
+                        }
+                        SettingRow(title: "Even out loudness", hint: "Normalizes to −16 LUFS, a common podcast and web level") {
+                            Switch(isOn: store.bind(\.normalizeLoudness))
+                        }
+                    }
+                } else if s.container.isAnimatedImage {
                     VStack(alignment: .leading, spacing: 12) {
                         SectionLabel("Animation")
                         SettingRow(title: "Frame rate") {
@@ -152,11 +181,22 @@ struct SimpleSettingsView: View {
 
                 VStack(alignment: .leading, spacing: 8) {
                     SectionLabel("Options")
-                    SettingRow(title: "Resolution") {
-                        PillMenu(selection: store.bind(\.resolution),
-                                 options: [.original, .p2160, .p1440, .p1080, .p720, .p480, .p360]) { $0.label }
+                    if !s.container.isAudioOnly && !s.container.isAnimatedImage && s.videoCodec.hasHardwareEncoder {
+                        SettingRow(title: "Encoder", hint: s.useHardwareEncoder
+                                   ? "Apple media engine: several times faster"
+                                   : "Software: smallest files, takes longer") {
+                            PillSegmented(selection: store.bind(\.useHardwareEncoder), options: [true, false], compact: true) {
+                                $0 ? "Fastest" : "Smallest"
+                            }
+                        }
                     }
-                    if !s.container.isAnimatedImage {
+                    if !s.container.isAudioOnly {
+                        SettingRow(title: "Resolution") {
+                            PillMenu(selection: store.bind(\.resolution),
+                                     options: [.original, .p2160, .p1440, .p1080, .p720, .p480, .p360]) { $0.label }
+                        }
+                    }
+                    if !s.container.isAnimatedImage && !s.container.isAudioOnly {
                         SettingRow(title: "Audio") {
                             Switch(isOn: Binding(
                                 get: { s.audioCodec != .none },
@@ -164,8 +204,18 @@ struct SimpleSettingsView: View {
                             ))
                         }
                     }
-                    SettingRow(title: "Transparency", hint: transparencyHint(s)) {
-                        Switch(isOn: $store.simpleTransparency)
+                    if !s.container.isAudioOnly && store.jobs.contains(where: { $0.media?.isHDR == true }) {
+                        SettingRow(title: "Keep HDR", hint: s.canCarryHDR
+                                   ? "Off converts to SDR so it looks right everywhere"
+                                   : "Needs HEVC, VP9 or ProRes. Pick Modern, Web alpha or ProRes") {
+                            Switch(isOn: Binding(get: { s.hdr == .keep && s.canCarryHDR }, set: { store.settings.hdr = $0 ? .keep : .toSDR }))
+                                .disabled(!s.canCarryHDR)
+                        }
+                    }
+                    if !s.container.isAudioOnly {
+                        SettingRow(title: "Transparency", hint: transparencyHint(s)) {
+                            Switch(isOn: $store.simpleTransparency)
+                        }
                     }
                     SettingRow(title: "Remove metadata", hint: "Location, camera, dates") {
                         Switch(isOn: $store.settings.stripMetadata)
@@ -175,6 +225,19 @@ struct SimpleSettingsView: View {
             .padding(16)
         }
         .scrollIndicators(.never)
+    }
+
+    /// Picking "Audio" while already on an audio format keeps that format.
+    private var formatChoice: Binding<Container> {
+        Binding(
+            get: { store.settings.container.isAudioOnly ? .m4a : store.settings.container },
+            set: { picked in
+                guard !(picked == .m4a && store.settings.container.isAudioOnly) else { return }
+                store.settings.container = picked
+                if picked == .m4a { store.settings.audioBitrateKbps = max(store.settings.audioBitrateKbps, 192) }
+                store.settings.normalize()
+            }
+        )
     }
 
     private var sizeMode: Binding<RateControl> {
@@ -203,26 +266,47 @@ func qualityWord(_ q: Double) -> String {
 }
 
 struct PresetTile: View {
-    let preset: QuickPreset
+    let name: String
+    let detail: String
+    let symbol: String
+    let tint: Color
     let selected: Bool
+    /// Set when this ffmpeg can't do what the preset needs; the tile dims and says why.
+    var unavailable: String?
     let action: () -> Void
     @State private var hovering = false
+
+    init(name: String, detail: String, symbol: String, tint: Color, selected: Bool, unavailable: String? = nil,
+         action: @escaping () -> Void) {
+        self.name = name
+        self.detail = detail
+        self.symbol = symbol
+        self.tint = tint
+        self.selected = selected
+        self.unavailable = unavailable
+        self.action = action
+    }
+
+    init(preset: QuickPreset, selected: Bool, unavailable: String? = nil, action: @escaping () -> Void) {
+        self.init(name: preset.name, detail: preset.detail, symbol: preset.symbol, tint: preset.tint,
+                  selected: selected, unavailable: unavailable, action: action)
+    }
 
     var body: some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 9) {
-                Image(systemName: preset.symbol)
+                Image(systemName: symbol)
                     .font(.system(size: 11.5, weight: .semibold))
-                    .foregroundStyle(preset.tint)
+                    .foregroundStyle(tint)
                     .frame(width: 26, height: 26)
-                    .background(Circle().fill(preset.tint.opacity(0.16)))
+                    .background(Circle().fill(tint.opacity(0.16)))
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(preset.name)
+                    Text(name)
                         .font(.system(size: 12.5, weight: .semibold))
                         .foregroundStyle(Theme.text)
-                    Text(preset.detail)
+                    Text(unavailable ?? detail)
                         .font(.system(size: 10.5))
-                        .foregroundStyle(Theme.tertiary)
+                        .foregroundStyle(unavailable == nil ? Theme.tertiary : Theme.red.opacity(0.85))
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -236,12 +320,47 @@ struct PresetTile: View {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .strokeBorder(selected ? preset.tint.opacity(0.8) : Theme.stroke, lineWidth: selected ? 1.5 : 1)
+                    .strokeBorder(selected ? tint.opacity(0.8) : Theme.stroke, lineWidth: selected ? 1.5 : 1)
             )
             .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .buttonStyle(.plain)
+        .disabled(unavailable != nil)
+        .opacity(unavailable != nil ? 0.5 : 1)
         .onHover { hovering = $0 }
+        .accessibilityLabel("\(name) preset")
+        .accessibilityHint(unavailable ?? detail)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+/// Dashed "save what I have now" tile at the end of the user's presets.
+struct SavePresetTile: View {
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 6) {
+                Image(systemName: "plus")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(hovering ? Theme.text : Theme.secondary)
+                Text("Save current…")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(hovering ? Theme.text : Theme.secondary)
+            }
+            .frame(maxWidth: .infinity, minHeight: 92)
+            .padding(11)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(style: StrokeStyle(lineWidth: 1.2, dash: [5, 5]))
+                    .foregroundStyle(hovering ? Theme.secondary : Theme.tertiary)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .onHover { h in withAnimation(.easeOut(duration: 0.15)) { hovering = h } }
+        .accessibilityLabel("Save current settings as a preset")
     }
 }
 
@@ -268,17 +387,18 @@ struct AdvancedSettingsView: View {
         @Bindable var store = store
         let s = store.settings
         let isImage = s.container.isAnimatedImage
-        let encodesVideo = !isImage && s.videoCodec != .copy
+        let audioOnly = s.container.isAudioOnly
+        let encodesVideo = !isImage && !audioOnly && s.videoCodec != .copy
 
         ScrollView {
             VStack(spacing: 8) {
                 formatSection(s, isImage: isImage)
                 if encodesVideo { videoSection(s) }
                 if isImage { animationSection(s) }
-                if s.videoCodec != .copy || isImage { frameSection(s) }
+                if !audioOnly && (s.videoCodec != .copy || isImage) { frameSection(s) }
                 timeSection(s)
                 if !isImage { audioSection(s) }
-                transparencySection(s)
+                if !audioOnly { transparencySection(s) }
                 metadataSection(s)
                 outputSection(s)
             }
@@ -292,22 +412,33 @@ struct AdvancedSettingsView: View {
     @ViewBuilder
     private func formatSection(_ s: EncodeSettings, isImage: Bool) -> some View {
         SettingsSection("Format", symbol: "shippingbox.fill", tint: Theme.orange,
-                        badge: isImage ? s.container.label : "\(s.container.label) · \(s.videoCodec.label)", expanded: true) {
+                        badge: isImage ? s.container.label
+                            : "\(s.container.label) · \(s.container.isAudioOnly ? s.audioCodec.label : s.videoCodec.label)",
+                        expanded: true) {
             SettingRow(title: "Container") {
-                PillMenu(selection: store.bind(\.container), options: Container.allCases) { $0.label }
+                PillMenu(selection: store.bind(\.container), options: Container.allCases) { $0.label } unavailable: {
+                    store.environment.missingLibrary(for: $0)
+                }
             }
-            if !isImage {
+            if !isImage && !s.container.isAudioOnly {
                 SettingRow(title: "Video codec") {
-                    PillMenu(selection: store.bind(\.videoCodec), options: s.container.videoCodecs) { $0.label }
+                    PillMenu(selection: store.bind(\.videoCodec), options: s.container.videoCodecs) { $0.label } unavailable: {
+                        store.environment.missingLibrary(for: $0, hardware: s.useHardwareEncoder && $0.hasHardwareEncoder)
+                    }
                 }
                 if s.videoCodec.hasHardwareEncoder {
-                    SettingRow(title: "Hardware encoder", hint: "VideoToolbox: much faster, slightly larger files") {
+                    SettingRow(title: "Hardware encoder", hint: s.videoCodec == .prores ? "Apple media engine, about 4× faster for ProRes 422" : "Apple media engine: 2–4× faster at similar size") {
                         Switch(isOn: store.bind(\.useHardwareEncoder))
                     }
                 }
             }
-            SettingRow(title: "Hardware decoding", hint: "Decode the source on the media engine") {
-                Switch(isOn: store.bind(\.useHardwareDecoder))
+            if s.container.isAudioOnly {
+                Note(text: "Audio only: the picture is dropped and just the soundtrack is exported.",
+                     tint: Theme.lilac, symbol: "waveform")
+            } else {
+                SettingRow(title: "Hardware decoding", hint: "Decode the source on the media engine") {
+                    Switch(isOn: store.bind(\.useHardwareDecoder))
+                }
             }
             ForEach(store.plan(for: store.jobs.first).warnings, id: \.self) { Note(text: $0) }
         }
@@ -364,8 +495,12 @@ struct AdvancedSettingsView: View {
                         PillMenu(selection: store.bind(\.h264Profile), options: H264Profile.allCases) { $0.label }
                     }
                 }
-                SettingRow(title: "Pixel format") {
+                SettingRow(title: "Pixel format", hint: s.hdr == .keep && s.pixelFormat == .auto ? "Auto picks 10-bit for HDR sources" : nil) {
                     PillMenu(selection: store.bind(\.pixelFormat), options: PixelFormat.allCases) { $0.label }
+                }
+                SettingRow(title: "HDR sources", hint: s.canCarryHDR ? "iPhone, HLG, HDR10 and Dolby Vision clips" : "\(s.videoCodec.label) is SDR only, so HDR is always converted") {
+                    PillSegmented(selection: store.bind(\.hdr), options: HDRHandling.allCases, compact: true) { $0 == .toSDR ? "To SDR" : "Keep" }
+                        .disabled(!s.canCarryHDR)
                 }
                 SettingRow(title: "Keyframe every", hint: "0 = encoder default") {
                     NumberField(value: store.bind(\.keyframeIntervalSeconds), suffix: "sec", width: 36)
@@ -428,7 +563,7 @@ struct AdvancedSettingsView: View {
                 PillMenu(selection: store.bind(\.resolution), options: ResolutionPreset.allCases) { $0.label }
             }
             if s.resolution == .custom {
-                SettingRow(title: "Size", hint: "0 keeps aspect ratio") {
+                SettingRow(title: "Size", hint: "0 keeps aspect ratio", combine: false) {
                     HStack(spacing: 6) {
                         NumberField(value: store.bind(\.customWidth), width: 40)
                         Text("×").foregroundStyle(Theme.tertiary)
@@ -462,7 +597,7 @@ struct AdvancedSettingsView: View {
             SettingRow(title: "Rotate") {
                 PillSegmented(selection: store.bind(\.rotation), options: Rotation.allCases, compact: true) { $0.label }
             }
-            SettingRow(title: "Flip") {
+            SettingRow(title: "Flip", combine: false) {
                 HStack(spacing: 6) {
                     Button("Horizontal") { store.settings.flipHorizontal.toggle() }
                         .buttonStyle(MiniChipStyle(selected: s.flipHorizontal))
@@ -474,10 +609,10 @@ struct AdvancedSettingsView: View {
                 EmptyView()
             }
             HStack(spacing: 6) {
-                NumberField(value: store.bind(\.cropTop), width: 30)
-                NumberField(value: store.bind(\.cropBottom), width: 30)
-                NumberField(value: store.bind(\.cropLeft), width: 30)
-                NumberField(value: store.bind(\.cropRight), width: 30)
+                NumberField(value: store.bind(\.cropTop), width: 30).accessibilityLabel("Crop top")
+                NumberField(value: store.bind(\.cropBottom), width: 30).accessibilityLabel("Crop bottom")
+                NumberField(value: store.bind(\.cropLeft), width: 30).accessibilityLabel("Crop left")
+                NumberField(value: store.bind(\.cropRight), width: 30).accessibilityLabel("Crop right")
             }
 
             Rectangle().fill(Theme.divider).frame(height: 1)
@@ -549,7 +684,9 @@ struct AdvancedSettingsView: View {
         SettingsSection("Audio", symbol: "waveform", tint: Theme.green,
                         badge: s.audioCodec.isLossy ? "\(s.audioCodec.label) \(s.audioBitrateKbps)k" : s.audioCodec.label) {
             SettingRow(title: "Codec") {
-                PillMenu(selection: store.bind(\.audioCodec), options: s.container.audioCodecs) { $0.label }
+                PillMenu(selection: store.bind(\.audioCodec), options: s.container.audioCodecs) { $0.label } unavailable: {
+                    store.environment.missingLibrary(for: $0)
+                }
             }
             if s.audioCodec.isLossy {
                 SettingRow(title: "Bitrate") {
@@ -653,11 +790,15 @@ struct AdvancedSettingsView: View {
                     .font(.system(size: 10.5))
                     .foregroundStyle(Theme.tertiary)
             }
-            Button("Reset all settings") {
-                store.settings = EncodeSettings()
-                store.selectedPresetID = nil
+            HStack(spacing: 6) {
+                Button("Save as preset…") { store.isNamingPreset = true }
+                    .buttonStyle(MiniChipStyle(selected: false))
+                Button("Reset all settings") {
+                    store.settings = EncodeSettings()
+                    store.selectedPresetID = nil
+                }
+                .buttonStyle(MiniChipStyle(selected: false))
             }
-            .buttonStyle(MiniChipStyle(selected: false))
         }
     }
 }

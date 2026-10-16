@@ -18,6 +18,20 @@ final class FFmpegProcess: @unchecked Sendable {
     private var process: Process?
     private var cancelled = false
 
+    // Every ffmpeg Squish has started and that hasn't exited yet. Child processes outlive
+    // their parent on macOS, so quitting has to stop these explicitly.
+    private static let registryLock = NSLock()
+    private static var live: [ObjectIdentifier: Process] = [:]
+
+    /// Stops every running ffmpeg: a polite SIGTERM, then SIGKILL for anything still alive after `timeout`.
+    static func terminateAll(timeout: TimeInterval = 1.5) {
+        let running = registryLock.withLock { Array(live.values) }
+        for p in running where p.isRunning { p.terminate() }
+        let deadline = Date().addingTimeInterval(timeout)
+        while running.contains(where: \.isRunning) && Date() < deadline { usleep(20_000) }
+        for p in running where p.isRunning { kill(p.processIdentifier, SIGKILL) }
+    }
+
     var isCancelled: Bool { lock.withLock { cancelled } }
 
     func cancel() {
@@ -48,6 +62,7 @@ final class FFmpegProcess: @unchecked Sendable {
 
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             process.terminationHandler = { [weak self] finished in
+                _ = FFmpegProcess.registryLock.withLock { FFmpegProcess.live.removeValue(forKey: ObjectIdentifier(finished)) }
                 out.fileHandleForReading.readabilityHandler = nil
                 err.fileHandleForReading.readabilityHandler = nil
                 errors.append(err.fileHandleForReading.readDataToEndOfFile())
@@ -62,6 +77,7 @@ final class FFmpegProcess: @unchecked Sendable {
             lock.withLock { self.process = process }
             do {
                 try process.run()
+                FFmpegProcess.registryLock.withLock { FFmpegProcess.live[ObjectIdentifier(process)] = process }
             } catch {
                 process.terminationHandler = nil
                 continuation.resume(throwing: error)

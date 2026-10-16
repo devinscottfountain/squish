@@ -1,72 +1,17 @@
 import AppKit
 import SwiftUI
 
-struct HeaderBar: View {
-    @Environment(QueueStore.self) private var store
-
-    var body: some View {
-        HStack(spacing: 12) {
-            AppGlyph(size: 30)
-            Text(store.isRunning ? "Squish is working…" : "Squish is idle..")
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(Theme.text)
-                .contentTransition(.opacity)
-            Spacer()
-            FFmpegStatusPill()
-        }
-        .padding(.leading, 4)
-    }
-}
-
-struct AppGlyph: View {
-    var size: CGFloat
-
-    var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: size * 0.3, style: .continuous)
-                .fill(LinearGradient(colors: [Theme.orange, Color(hex: "#E8402A")], startPoint: .top, endPoint: .bottom))
-            Image(systemName: "arrow.down.right.and.arrow.up.left")
-                .font(.system(size: size * 0.42, weight: .bold))
-                .foregroundStyle(Theme.yellow)
-        }
-        .frame(width: size, height: size)
-        .shadow(color: Theme.orange.opacity(0.35), radius: 8, y: 3)
-    }
-}
-
-struct FFmpegStatusPill: View {
-    @Environment(QueueStore.self) private var store
-
-    var body: some View {
-        let env = store.environment
-        HStack(spacing: 7) {
-            Circle()
-                .fill(env.isAvailable ? Theme.green : Theme.red)
-                .frame(width: 7, height: 7)
-            if env.isChecking {
-                Text("Looking for ffmpeg…")
-            } else if env.isAvailable {
-                Text("ffmpeg \(env.version ?? "")")
-            } else {
-                Text("ffmpeg not found")
-                Button("Locate…") { store.locateFFmpeg() }
-                    .buttonStyle(MiniChipStyle(selected: false))
-            }
-        }
-        .font(.system(size: 12, weight: .medium))
-        .foregroundStyle(Theme.secondary)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 7)
-        .background(Capsule().fill(Theme.card))
-        .overlay(Capsule().strokeBorder(Theme.stroke))
-        .help(env.ffmpeg?.path ?? "Install with: brew install ffmpeg")
-    }
-}
-
 // MARK: - Queue card
 
 struct QueueCard: View {
     @Environment(QueueStore.self) private var store
+    // Drag-to-reorder: which row is lifted, how far it has moved, and where it would land
+    // (.some(nil) means after the last row).
+    @State private var dragged: UUID?
+    @State private var dragOffset: CGFloat = 0
+    @State private var dropBefore: UUID??
+    @State private var rowFrames: [UUID: CGRect] = [:]
+    private static let space = "queue"
 
     var body: some View {
         Card {
@@ -90,6 +35,10 @@ struct QueueCard: View {
 
                 if !store.environment.isAvailable && !store.environment.isChecking {
                     InstallBanner().padding(.horizontal, 16).padding(.bottom, 8)
+                } else if store.environment.isTranslated {
+                    Note(text: "Your ffmpeg is an Intel build running under Rosetta, so encodes are much slower. Install the Apple silicon one with: brew install ffmpeg (Homebrew in /opt/homebrew).")
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 8)
                 }
 
                 if store.jobs.isEmpty {
@@ -98,14 +47,38 @@ struct QueueCard: View {
                     ScrollView {
                         LazyVStack(spacing: 0) {
                             ForEach(store.jobs) { job in
+                                let isDragged = dragged == job.id
                                 JobRow(job: job)
-                                if job.id != store.jobs.last?.id {
-                                    Rectangle().fill(Theme.divider).frame(height: 1).padding(.leading, 56)
-                                }
+                                    .overlay(alignment: .bottom) {
+                                        if job.id != store.jobs.last?.id && !isDragged {
+                                            Rectangle().fill(Theme.divider).frame(height: 1).padding(.leading, 40)
+                                        }
+                                    }
+                                    .overlay(alignment: .top) { insertionLine(visible: dropBefore == .some(job.id)) }
+                                    .background {
+                                        if isDragged {
+                                            // Solid, so the lifted row doesn't show the one beneath it.
+                                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                                .fill(Color(hex: "#2B2B2F"))
+                                                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.glassEdge, lineWidth: 1))
+                                                .shadow(color: .black.opacity(0.35), radius: 14, y: 8)
+                                                .padding(.horizontal, -10)
+                                        }
+                                    }
+                                    .scaleEffect(isDragged ? 1.02 : 1)
+                                    .offset(y: isDragged ? dragOffset : 0)
+                                    .zIndex(isDragged ? 1 : 0)
+                                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.space)) } action: {
+                                        rowFrames[job.id] = $0
+                                    }
+                                    .gesture(reorderGesture(for: job))
                             }
+                            Color.clear
+                                .frame(height: 40)
+                                .overlay(alignment: .top) { insertionLine(visible: dragged != nil && dropBefore == .some(nil)) }
                         }
                         .padding(.horizontal, 16)
-                        .padding(.bottom, 40)
+                        .coordinateSpace(.named(Self.space))
                     }
                     .scrollIndicators(.never)
                     .mask {
@@ -116,6 +89,49 @@ struct QueueCard: View {
                     }
                 }
             }
+        }
+    }
+
+    /// Press and drag a row to move it. A few points of movement are needed first, so clicks still expand rows.
+    private func reorderGesture(for job: EncodeJob) -> some Gesture {
+        DragGesture(minimumDistance: 6, coordinateSpace: .named(Self.space))
+            .onChanged { value in
+                if dragged == nil {
+                    withAnimation(.snappy(duration: 0.15)) { dragged = job.id }
+                }
+                dragOffset = value.translation.height
+                let target = store.jobs
+                    .filter { $0.id != job.id }
+                    .first { (rowFrames[$0.id]?.midY ?? .infinity) > value.location.y }?.id
+                // Hide the line when dropping would leave the row where it is.
+                let index = store.jobs.firstIndex { $0.id == job.id } ?? 0
+                let next = index + 1 < store.jobs.count ? store.jobs[index + 1].id : nil
+                let newTarget: UUID?? = target == next ? nil : .some(target)
+                if newTarget != dropBefore {
+                    withAnimation(.easeOut(duration: 0.12)) { dropBefore = newTarget }
+                    if newTarget != nil { Delight.tick() }
+                }
+            }
+            .onEnded { _ in
+                if let target = dropBefore { store.move(job.id, before: target) }
+                withAnimation(.snappy(duration: 0.25)) {
+                    dragged = nil
+                    dragOffset = 0
+                    dropBefore = nil
+                }
+            }
+    }
+
+    @ViewBuilder
+    private func insertionLine(visible: Bool) -> some View {
+        if visible {
+            Capsule()
+                .fill(Theme.orange)
+                .frame(height: 3)
+                .shadow(color: Theme.orange.opacity(0.6), radius: 4)
+                .offset(y: -2)
+                .transition(.opacity)
+                .allowsHitTesting(false)
         }
     }
 }
@@ -157,27 +173,42 @@ struct InstallBanner: View {
 struct DropZone: View {
     @Environment(QueueStore.self) private var store
     @State private var hovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(spacing: 14) {
+            let allDone = store.showAllSquished
             ZStack {
-                Circle()
-                    .strokeBorder(style: StrokeStyle(lineWidth: 2, dash: [4, 5]))
-                    .foregroundStyle(Theme.tertiary)
-                    .rotationEffect(.degrees(hovering ? 45 : 0))
-                Image(systemName: "arrow.down")
+                // Slow, constant spin (one turn every 24 s), with round-capped dashes like the status rings.
+                TimelineView(.animation(minimumInterval: 1 / 30, paused: reduceMotion)) { context in
+                    Circle()
+                        .strokeBorder(style: StrokeStyle(lineWidth: 2.5, lineCap: .round, dash: [3, 6.5]))
+                        .foregroundStyle(allDone ? Theme.yellow : (hovering ? Theme.secondary : Theme.tertiary))
+                        .rotationEffect(.degrees(reduceMotion ? 0 : context.date.timeIntervalSinceReferenceDate
+                            .truncatingRemainder(dividingBy: 24) / 24 * 360))
+                }
+                Image(systemName: allDone ? "checkmark" : "arrow.down")
                     .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(Theme.orange)
-                    .offset(y: hovering ? 2 : 0)
+                    .foregroundStyle(allDone ? Theme.yellow : Theme.orange)
+                    .offset(y: hovering && !allDone ? 2 : 0)
+                    .contentTransition(.symbolEffect(.replace))
             }
             .frame(width: 64, height: 64)
-            Text("Drop videos here")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(Theme.text)
-            Text("MP4, MOV, MKV, WebM, GIF, ProRes. Anything ffmpeg can read. Folders too.")
-                .font(.system(size: 12))
-                .foregroundStyle(Theme.secondary)
-                .multilineTextAlignment(.center)
+            VStack(spacing: 14) {
+                Text(allDone ? "All squished." : "Drop videos here")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(Theme.text)
+                Text(allDone ? "Drop more whenever you're ready." : "MP4, MOV, MKV, WebM, GIF, ProRes. Anything ffmpeg can read. Folders too.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            // Old copy leaves quickly before the new copy arrives, so the two never overlap.
+            .id(allDone)
+            .transition(.asymmetric(
+                insertion: .opacity.animation(.easeOut(duration: 0.25).delay(0.14)),
+                removal: .opacity.animation(.easeIn(duration: 0.12))
+            ))
             Button("Browse…") { store.presentOpenPanel() }
                 .buttonStyle(MiniChipStyle(selected: false))
         }
@@ -191,6 +222,11 @@ struct DropZone: View {
         .contentShape(Rectangle())
         .onHover { h in withAnimation(.snappy) { hovering = h } }
         .onTapGesture { store.presentOpenPanel() }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Add videos")
+        .accessibilityHint("Opens a file browser. You can also drop files or folders on the window.")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { store.presentOpenPanel() }
     }
 }
 
@@ -207,11 +243,22 @@ struct JobRow: View {
             HStack(spacing: 14) {
                 StatusGlyph(status: job.status, progress: job.progress)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(job.name)
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(Theme.text)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+                    HStack(spacing: 7) {
+                        Text(job.name)
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundStyle(Theme.text)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        if let custom = job.customSettings {
+                            Text("Own settings")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(Theme.lilac)
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 2)
+                                .background(Capsule().fill(Theme.lilac.opacity(0.16)))
+                                .help(custom.summaryText)
+                        }
+                    }
                     HStack(spacing: 8) {
                         Text(verb)
                             .foregroundStyle(tint)
@@ -220,20 +267,22 @@ struct JobRow: View {
                             .foregroundStyle(Theme.secondary)
                             .lineLimit(1)
                             .truncationMode(.tail)
+                            .modifier(ShimmerOnce(active: isBigWin && !job.hasCelebrated) { job.hasCelebrated = true })
                     }
                     .font(.system(size: 13).monospacedDigit())
                 }
                 Spacer(minLength: 8)
-                if hovering && job.status != .encoding {
-                    Button { store.remove(job) } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundStyle(Theme.secondary)
-                            .frame(width: 24, height: 24)
-                            .background(Circle().fill(Theme.field))
+                if hovering {
+                    HStack(spacing: 6) {
+                        if job.status == .failed || job.status == .cancelled {
+                            RowButton(symbol: "arrow.clockwise", help: "Try again") { store.retry(job) }
+                        }
+                        if job.status == .encoding || job.status == .queued {
+                            RowButton(symbol: "stop.fill", help: "Stop this file") { store.cancel(job) }
+                        } else {
+                            RowButton(symbol: "xmark", help: "Remove from queue") { store.remove(job) }
+                        }
                     }
-                    .buttonStyle(.plain)
-                    .help("Remove from queue")
                     .transition(.opacity)
                 }
                 Image(systemName: "chevron.right")
@@ -244,6 +293,18 @@ struct JobRow: View {
             .padding(.vertical, 14)
             .contentShape(Rectangle())
             .onTapGesture { withAnimation(.snappy(duration: 0.25)) { expanded.toggle() } }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(job.name)
+            .accessibilityValue("\(verb.replacingOccurrences(of: "..", with: "")), \(detail)")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityHint(expanded ? "Hides details" : "Shows details")
+            .accessibilityAction { withAnimation { expanded.toggle() } }
+            .accessibilityAction(named: "Remove from queue") { store.remove(job) }
+            .accessibilityAction(named: "Try again") { store.retry(job) }
+            .accessibilityAction(named: "Stop this file") { store.cancel(job) }
+            .accessibilityAction(named: "Move to top") { store.move(job.id, before: store.jobs.first?.id) }
+            .accessibilityAction(named: "Move to bottom") { store.move(job.id, before: nil) }
+            .contextMenu { JobMenu(job: job) }
 
             if expanded {
                 JobDetail(job: job)
@@ -254,6 +315,9 @@ struct JobRow: View {
         }
         .onHover { h in withAnimation(.easeOut(duration: 0.15)) { hovering = h } }
     }
+
+    /// Rare on purpose: only files that shrank by 90% or more.
+    private var isBigWin: Bool { job.status == .done && (job.savings ?? 0) >= 0.9 }
 
     private var verb: String {
         switch job.status {
@@ -286,9 +350,18 @@ struct JobRow: View {
             var parts: [String] = []
             if let media = job.media {
                 parts.append("\(media.width)×\(media.height)")
+                if let hdr = media.hdrFormat { parts.append(hdr) }
                 if media.duration > 0 { parts.append(Format.duration(media.duration)) }
             }
-            parts.append(Format.bytes(job.inputSize))
+            var size = Format.bytes(job.inputSize)
+            if job.status == .ready {
+                if let estimate = job.estimate, !job.isEstimating {
+                    size += " → ≈ \(Format.bytes(estimate))"
+                } else if job.isEstimating {
+                    size += " → estimating…"
+                }
+            }
+            parts.append(size)
             return parts.joined(separator: " · ")
         case .encoding:
             var parts = ["\(Int(job.progress * 100))%"]
@@ -323,6 +396,23 @@ struct JobDetail: View {
             if let output = job.output {
                 DetailLine(label: "Output", value: (output.path as NSString).abbreviatingWithTildeInPath)
             }
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                DetailLine(label: "Settings", value: job.customSettings.map { "Own · \($0.summaryText)" }
+                           ?? "Shared · \(store.settings.summaryText)")
+                Spacer(minLength: 4)
+                if job.customSettings == nil {
+                    Button("Pin to this file") { store.pinSettings(to: job) }
+                        .buttonStyle(MiniChipStyle(selected: false))
+                        .help("Freeze the current panel settings for this file, so later changes don't affect it")
+                } else {
+                    Button("Update") { store.pinSettings(to: job) }
+                        .buttonStyle(MiniChipStyle(selected: false))
+                        .help("Replace this file's settings with what's in the panel now")
+                    Button("Use shared") { store.unpinSettings(from: job) }
+                        .buttonStyle(MiniChipStyle(selected: false))
+                        .help("Go back to following the settings panel")
+                }
+            }
             if job.status == .failed, let message = job.message {
                 Text(message)
                     .font(Theme.mono)
@@ -332,6 +422,15 @@ struct JobDetail: View {
             }
             ForEach(job.warnings, id: \.self) { Note(text: $0) }
             HStack(spacing: 6) {
+                if job.status == .failed || job.status == .cancelled {
+                    Button("Try again") { store.retry(job) }
+                        .buttonStyle(MiniChipStyle(selected: true))
+                }
+                if job.media != nil && !store.isRunning && !store.effectiveSettings(for: job).container.isAudioOnly {
+                    Button("Preview") { store.previewJob = job }
+                        .buttonStyle(MiniChipStyle(selected: true))
+                        .help("Compare a frame before and after with the current settings")
+                }
                 if job.status == .done, let output = job.output {
                     Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([output]) }
                         .buttonStyle(MiniChipStyle(selected: false))
@@ -376,6 +475,8 @@ struct StatusGlyph: View {
     let status: EncodeJob.Status
     let progress: Double
     @State private var spin = false
+    @State private var squash = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ZStack {
@@ -385,14 +486,8 @@ struct StatusGlyph: View {
                     .strokeBorder(style: StrokeStyle(lineWidth: 2.5, lineCap: .round, dash: [3.5, 5]))
                     .foregroundStyle(Theme.secondary)
                     .rotationEffect(.degrees(spin ? 360 : 0))
-                    .animation(status == .ready ? .default : .linear(duration: 5).repeatForever(autoreverses: false), value: spin)
-                HStack(spacing: 2.5) {
-                    ForEach(0..<3) { i in
-                        Circle()
-                            .fill(i == 2 ? Theme.text : Theme.secondary)
-                            .frame(width: 4, height: 4)
-                    }
-                }
+                    .animation(status == .ready || reduceMotion ? nil : .linear(duration: 5).repeatForever(autoreverses: false), value: spin)
+                WaitingDots(animating: status != .ready && !reduceMotion)
             case .encoding:
                 Circle().stroke(Color.white.opacity(0.1), lineWidth: 3)
                 Circle()
@@ -404,7 +499,7 @@ struct StatusGlyph: View {
                     .fill(Theme.yellow)
                     .frame(width: 8, height: 8)
                     .scaleEffect(spin ? 1 : 0.6)
-                    .animation(.easeInOut(duration: 0.8).repeatForever(), value: spin)
+                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.8).repeatForever(), value: spin)
             case .done:
                 Circle()
                     .strokeBorder(style: StrokeStyle(lineWidth: 2.5, lineCap: .round, dash: [3.5, 5]))
@@ -426,6 +521,138 @@ struct StatusGlyph: View {
             }
         }
         .frame(width: 32, height: 32)
+        .scaleEffect(x: squash ? 1.2 : 1, y: squash ? 0.76 : 1, anchor: .bottom)
         .onAppear { spin = true }
+        .onChange(of: status) { _, new in
+            // The name made literal: a quick squash as the check lands, then a springy recovery.
+            guard new == .done, !reduceMotion else { return }
+            withAnimation(.easeIn(duration: 0.09)) { squash = true }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.09) {
+                withAnimation(.spring(response: 0.42, dampingFraction: 0.42)) { squash = false }
+            }
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+// MARK: - Shimmer
+
+/// One pass of light across the content, then it reports back so it never repeats.
+struct ShimmerOnce: ViewModifier {
+    var active: Bool
+    var onFinish: () -> Void
+    @State private var phase: CGFloat = -0.7
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content
+            .overlay {
+                if active && !reduceMotion {
+                    GeometryReader { geo in
+                        LinearGradient(colors: [.clear, Theme.yellow.opacity(0.9), .white, Theme.yellow.opacity(0.9), .clear],
+                                       startPoint: .leading, endPoint: .trailing)
+                            .frame(width: max(geo.size.width * 0.45, 40))
+                            .offset(x: phase * geo.size.width)
+                    }
+                    .mask(content)
+                    .allowsHitTesting(false)
+                    .onAppear {
+                        withAnimation(.easeInOut(duration: 1.2).delay(0.35)) { phase = 1.1 }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.7) { onFinish() }
+                    }
+                }
+            }
+            .onAppear { if active && reduceMotion { onFinish() } }
+    }
+}
+
+// MARK: - Row helpers
+
+private struct RowButton: View {
+    let symbol: String
+    let help: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(Theme.secondary)
+                .frame(width: 24, height: 24)
+                .background(Circle().fill(Theme.field))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
+        .accessibilityLabel(help)
+    }
+}
+
+/// Right-click menu for a queue row.
+private struct JobMenu: View {
+    @Environment(QueueStore.self) private var store
+    let job: EncodeJob
+
+    var body: some View {
+        if job.status == .failed || job.status == .cancelled {
+            Button("Try Again") { store.retry(job) }
+        }
+        if job.status == .encoding || job.status == .queued {
+            Button("Stop This File") { store.cancel(job) }
+        }
+        if job.status == .done, let output = job.output {
+            Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([output]) }
+        }
+        Divider()
+        if job.customSettings == nil {
+            Button("Pin Current Settings to This File") { store.pinSettings(to: job) }
+        } else {
+            Button("Update Pinned Settings") { store.pinSettings(to: job) }
+            Button("Use Shared Settings") { store.unpinSettings(from: job) }
+            Button("Load Its Settings into the Panel") { store.settings = job.customSettings ?? store.settings }
+        }
+        Divider()
+        Button("Move to Top") { store.move(job.id, before: store.jobs.first?.id) }
+            .disabled(store.jobs.first?.id == job.id)
+        Button("Move to Bottom") { store.move(job.id, before: nil) }
+            .disabled(store.jobs.last?.id == job.id)
+        Divider()
+        Button("Remove from Queue", role: .destructive) { store.remove(job) }
+            .disabled(job.status == .encoding)
+    }
+}
+
+/// Three dots: all the same when a file is just sitting in the queue, a left-to-right
+/// pulse while it's waiting on something (being read, or queued behind other files).
+private struct WaitingDots: View {
+    var animating: Bool
+
+    var body: some View {
+        if animating {
+            TimelineView(.animation(minimumInterval: 1 / 30)) { context in
+                dots(phase: context.date.timeIntervalSinceReferenceDate)
+            }
+        } else {
+            dots(phase: nil)
+        }
+    }
+
+    private func dots(phase: Double?) -> some View {
+        HStack(spacing: 2.5) {
+            ForEach(0..<3) { i in
+                Circle()
+                    .fill(Theme.text)
+                    .opacity(brightness(dot: i, phase: phase))
+                    .frame(width: 4, height: 4)
+            }
+        }
+    }
+
+    /// A soft bump that travels across the dots about once a second.
+    private func brightness(dot: Int, phase: Double?) -> Double {
+        guard let phase else { return 0.55 }
+        let position = (phase * 2.4).truncatingRemainder(dividingBy: 3.6)
+        let distance = abs(position - Double(dot) - 0.5)
+        return 0.35 + 0.65 * max(0, 1 - distance)
     }
 }

@@ -19,6 +19,7 @@ struct QuickPreset: Identifiable {
                     symbol: "paperplane.fill", tint: Theme.lilac) { s in
             s.rateControl = .targetSize
             s.targetSizeMB = 10
+            s.useHardwareEncoder = false // two-pass software lands much closer to the target
             s.resolution = .p720
             s.audioBitrateKbps = 96
         },
@@ -55,10 +56,17 @@ struct QuickPreset: Identifiable {
             s.resolution = .p480
             s.frameRate = .fps15
         },
+        QuickPreset(id: "audio", name: "Audio only", detail: "Pull the soundtrack out as M4A",
+                    symbol: "waveform", tint: Theme.teal) { s in
+            s.container = .m4a
+            s.audioCodec = .aac
+            s.audioBitrateKbps = 256
+        },
         QuickPreset(id: "archive", name: "Archive", detail: "10-bit HEVC, lossless audio",
                     symbol: "archivebox.fill", tint: Theme.red) { s in
             s.container = .mkv
             s.videoCodec = .hevc
+            s.useHardwareEncoder = false // smallest files matter more than speed here
             s.quality = 85
             s.speed = .slow
             s.pixelFormat = .yuv420p10le

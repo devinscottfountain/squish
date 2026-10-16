@@ -2,13 +2,17 @@ import AppKit
 import SwiftUI
 
 enum Theme {
-    static let window = Color(hex: "#111111")
-    static let card = Color(hex: "#1C1C1C")
-    static let raised = Color(hex: "#262626")
-    static let field = Color(hex: "#2A2A2A")
-    static let knob = Color(hex: "#3A3A3A")
-    static let stroke = Color.white.opacity(0.07)
+    // Translucent so the glass underneath shows through.
+    static let raised = Color.white.opacity(0.07)
+    static let field = Color.white.opacity(0.07)
+    static let knob = Color.white.opacity(0.17)
+    static let stroke = Color.white.opacity(0.09)
     static let divider = Color.white.opacity(0.07)
+    /// Top-lit edge that sells the glass.
+    static let glassEdge = LinearGradient(
+        colors: [Color.white.opacity(0.22), Color.white.opacity(0.04), Color.white.opacity(0.08)],
+        startPoint: .top, endPoint: .bottom
+    )
 
     static let text = Color.white.opacity(0.94)
     static let secondary = Color.white.opacity(0.55)

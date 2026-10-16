@@ -3,7 +3,7 @@ import Foundation
 // MARK: - Format
 
 enum Container: String, CaseIterable, Identifiable, Codable {
-    case mp4, mov, mkv, webm, gif, webp, apng, pngSequence
+    case mp4, mov, mkv, webm, gif, webp, apng, pngSequence, m4a, mp3, wav, flac
 
     var id: String { rawValue }
 
@@ -17,8 +17,23 @@ enum Container: String, CaseIterable, Identifiable, Codable {
         case .webp: "WebP"
         case .apng: "APNG"
         case .pngSequence: "PNG frames"
+        case .m4a: "M4A"
+        case .mp3: "MP3"
+        case .wav: "WAV"
+        case .flac: "FLAC"
         }
     }
+
+    /// Audio-only formats: the video is dropped and only the soundtrack is exported.
+    var isAudioOnly: Bool {
+        switch self {
+        case .m4a, .mp3, .wav, .flac: true
+        default: false
+        }
+    }
+
+    static let videoFormats: [Container] = allCases.filter { !$0.isAudioOnly }
+    static let audioFormats: [Container] = allCases.filter(\.isAudioOnly)
 
     var fileExtension: String {
         switch self {
@@ -50,11 +65,15 @@ enum Container: String, CaseIterable, Identifiable, Codable {
         case .mov: [.aac, .pcm, .copy, .none]
         case .mkv: [.aac, .opus, .flac, .mp3, .copy, .none]
         case .webm: [.opus, .none]
+        case .m4a: [.aac, .alac]
+        case .mp3: [.mp3]
+        case .wav: [.pcm]
+        case .flac: [.flac]
         default: [.none]
         }
     }
 
-    var supportsFastStart: Bool { self == .mp4 || self == .mov }
+    var supportsFastStart: Bool { self == .mp4 || self == .mov || self == .m4a }
 }
 
 enum VideoCodec: String, CaseIterable, Identifiable, Codable {
@@ -73,11 +92,12 @@ enum VideoCodec: String, CaseIterable, Identifiable, Codable {
         }
     }
 
-    var hasHardwareEncoder: Bool { self == .h264 || self == .hevc }
+    /// Apple silicon's media engine encodes H.264, HEVC and ProRes 422.
+    var hasHardwareEncoder: Bool { self == .h264 || self == .hevc || self == .prores }
 }
 
 enum AudioCodec: String, CaseIterable, Identifiable, Codable {
-    case aac, opus, mp3, flac, pcm, copy, none
+    case aac, opus, mp3, flac, alac, pcm, copy, none
 
     var id: String { rawValue }
 
@@ -87,6 +107,7 @@ enum AudioCodec: String, CaseIterable, Identifiable, Codable {
         case .opus: "Opus"
         case .mp3: "MP3"
         case .flac: "FLAC"
+        case .alac: "ALAC (lossless)"
         case .pcm: "PCM"
         case .copy: "Passthrough"
         case .none: "No audio"
@@ -99,6 +120,7 @@ enum AudioCodec: String, CaseIterable, Identifiable, Codable {
         case .opus: "libopus"
         case .mp3: "libmp3lame"
         case .flac: "flac"
+        case .alac: "alac"
         case .pcm: "pcm_s16le"
         case .copy: "copy"
         case .none: ""
@@ -189,6 +211,13 @@ enum ProResProfile: Int, CaseIterable, Identifiable, Codable {
         case .p4444xq: "4444 XQ"
         }
     }
+}
+
+enum HDRHandling: String, CaseIterable, Identifiable, Codable {
+    case toSDR, keep
+
+    var id: String { rawValue }
+    var label: String { self == .toSDR ? "Convert to SDR" : "Keep HDR" }
 }
 
 // MARK: - Frame
@@ -353,7 +382,8 @@ struct EncodeSettings: Codable, Equatable {
     // Format
     var container: Container = .mp4
     var videoCodec: VideoCodec = .h264
-    var useHardwareEncoder = false
+    /// On by default: the media engine matched software size and quality at 2–4× the speed (M4 Pro benchmark).
+    var useHardwareEncoder = true
     var useHardwareDecoder = false
 
     // Rate control
@@ -375,6 +405,7 @@ struct EncodeSettings: Codable, Equatable {
     var keyframeIntervalSeconds: Double = 0
     var bFrames = -1
     var fastStart = true
+    var hdr: HDRHandling = .toSDR
 
     // Frame
     var resolution: ResolutionPreset = .original
@@ -452,6 +483,15 @@ struct EncodeSettings: Codable, Equatable {
 
     var hardwareEncoding: Bool { useHardwareEncoder && videoCodec.hasHardwareEncoder }
 
+    /// H.264 and the image formats are 8-bit SDR in practice, so HDR has to be converted for them.
+    var canCarryHDR: Bool {
+        guard !container.isAnimatedImage, !container.isAudioOnly else { return false }
+        switch videoCodec {
+        case .hevc, .av1, .vp9, .prores, .copy: return true
+        case .h264: return false
+        }
+    }
+
     var targetFrameRate: Double? {
         frameRate == .custom ? customFrameRate : frameRate.fixedValue
     }
@@ -462,6 +502,7 @@ struct EncodeSettings: Codable, Equatable {
 
     var outputSupportsAlpha: Bool {
         if container.isAnimatedImage { return true }
+        if container.isAudioOnly { return false }
         switch videoCodec {
         case .prores: return container == .mov
         case .vp9: return container == .webm || container == .mkv
@@ -488,6 +529,17 @@ struct EncodeSettings: Codable, Equatable {
         case .preserve, .chromaKey: return true
         case .flatten: return false
         }
+    }
+
+    /// Decodes saved settings, filling any keys added since they were saved with defaults.
+    static func decodeLenient(_ data: Data) -> EncodeSettings? {
+        guard let saved = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let defaultsData = try? JSONEncoder().encode(EncodeSettings()),
+              var merged = try? JSONSerialization.jsonObject(with: defaultsData) as? [String: Any]
+        else { return nil }
+        merged.merge(saved) { _, new in new }
+        guard let mergedData = try? JSONSerialization.data(withJSONObject: merged) else { return nil }
+        return try? JSONDecoder().decode(EncodeSettings.self, from: mergedData)
     }
 
     /// Keeps codec choices valid for the chosen container.

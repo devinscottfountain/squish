@@ -41,6 +41,40 @@ Squish finds `ffmpeg`/`ffprobe` in `/opt/homebrew/bin`, `/usr/local/bin`, `/opt/
 
 Plus: drag-and-drop (files or folders), Dock/`open -a` support, live progress/speed/ETA, per-file savings, "Copy command", and a sheet showing the exact ffmpeg command.
 
+## Performance (Apple silicon only)
+
+Squish is Swift and SwiftUI, built for arm64 only. ffmpeg does the encoding, so speed depends on the encoder it uses. These were measured on an M4 Pro (10 performance and 4 efficiency cores) with 1080p30 footage.
+
+| Encoder | Speed (× realtime) | Notes |
+|---|---|---|
+| H.264, media engine (default) | 6.8–7.5× | Size and quality about even with x264 medium on detailed or grainy footage; files can be larger on flat graphics |
+| H.264, x264 medium (Smallest) | 2.3–3.1× | |
+| HEVC, media engine | 6.6–6.8× | Quality scale calibrated so q≈48 matches x265 medium |
+| HEVC, x265 medium | 1.5–1.9× | |
+| AV1, SVT preset 8 | 5.5–7.1× | Smallest files on grainy footage |
+| ProRes 422 HQ, media engine | 18.7× | About 4× faster than software; used for 422 profiles |
+| ProRes 422 HQ, prores_ks | 4.5× | Still used for 4444 and transparency |
+
+What this means for the defaults:
+- **Encoder:** Simple mode's Encoder switch defaults to Fastest, the media engine. "Under 10 MB" and "Archive" stay in software, which hits exact sizes and makes the smallest files.
+- **Files at once:** defaults to 1. Two x264 encodes side by side took as long as running them one after another, because each already uses every core.
+- **Hardware decoding:** left off. It made no difference when encoding with x264.
+- **Untagged video:** gets BT.709 (HD) or BT.601 (SD) color tags before the media engine sees it. Untagged sources otherwise came out color-shifted from ProRes.
+- **Rosetta check:** Squish warns if your ffmpeg is an Intel build, which would run under Rosetta several times slower. Install the Apple silicon build with Homebrew in `/opt/homebrew`.
+
+## Small delights
+
+Kept quiet on purpose. Each one fires on a real event and respects Reduce Motion and the Mac's UI sound setting.
+
+- **Finish sound:** a 0.5 s stereo "squish-pop-chime", played once per batch. It's built in `Tools/render_sound.py` from seven layers: a low thump, a detuned squish tone, a squelch of filtered noise, a transient click, a bubble pop, a soft bell fifth and a short room. To change it, tweak the per-layer gains in `render()` and re-run the script. You can turn the sound off in Output › Sound when done or Queue › Play Sound When Done.
+- **Row squish:** the status ring squashes and springs back as a file's check lands.
+- **Count-up:** saved bytes and percentages roll up in the stats pill.
+- **Dock:** a progress bar on the icon during a batch, and one bounce at the end only if Squish is in the background.
+- **Lifetime savings:** hover the stats pill.
+- **Haptics:** a tick when the preview divider snaps to center, and a soft thud when files are dropped.
+- **"All squished.":** shown briefly in the empty state after clearing a finished batch.
+- **Big-win shimmer:** one pass of light across the result line, only for files that shrank 90% or more.
+
 ## Ideas for next
 
 **Workflow**

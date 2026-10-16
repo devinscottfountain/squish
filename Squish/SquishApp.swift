@@ -18,6 +18,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let store else {
+            FFmpegProcess.terminateAll()
+            return .terminateNow
+        }
+        if store.isRunning {
+            let alert = NSAlert()
+            alert.messageText = "Squish is still encoding"
+            alert.informativeText = "Quitting stops the current encode and deletes its unfinished file. Files that already finished are kept, and the rest of the queue will be waiting next time."
+            alert.addButton(withTitle: "Stop and Quit")
+            alert.addButton(withTitle: "Keep Encoding")
+            guard alert.runModal() == .alertFirstButtonReturn else { return .terminateCancel }
+        }
+        store.prepareForQuit()
+        return .terminateNow
+    }
 }
 
 @main
@@ -37,6 +54,7 @@ struct SquishApp: App {
         .windowBackgroundDragBehavior(.enabled)
         .defaultSize(width: 1120, height: 760)
         .commands {
+            CommandGroup(replacing: .appInfo) { AboutMenuItem() }
             CommandGroup(after: .newItem) {
                 Button("Add Videos…") { store.presentOpenPanel() }
                     .keyboardShortcut("o")
@@ -44,16 +62,39 @@ struct SquishApp: App {
                     .keyboardShortcut("o", modifiers: [.command, .shift])
             }
             CommandMenu("Queue") {
-                Button(store.isRunning ? "Stop" : "Start") { store.isRunning ? store.stop() : store.start() }
+                Button(store.isRunning ? "Stop" : "Start") { store.isRunning ? store.stop() : store.start(only: nil) }
                     .keyboardShortcut(.return, modifiers: .command)
+                Button("Retry Failed") { store.retryFailed() }
+                    .keyboardShortcut("r", modifiers: [.command, .shift])
+                    .disabled(!store.jobs.contains { $0.status == .failed || $0.status == .cancelled })
                 Button("Clear Finished") { store.clearFinished() }
                     .keyboardShortcut("k")
+                Toggle("Play Sound When Done", isOn: Binding(get: { store.playSounds }, set: { store.playSounds = $0 }))
                 Divider()
                 Button("Simple Mode") { store.mode = .simple }
                     .keyboardShortcut("1")
                 Button("Advanced Mode") { store.mode = .advanced }
                     .keyboardShortcut("2")
             }
+        }
+
+        Window("About Squish", id: "about") {
+            AboutView()
+                .padding(.horizontal, 32)
+                .padding(.top, 28)
+                .padding(.bottom, 24)
+                .frame(width: 380)
+                .preferredColorScheme(.dark)
+                .containerBackground(.ultraThinMaterial, for: .window)
+        }
+        .windowStyle(.hiddenTitleBar)
+        .windowResizability(.contentSize)
+        .defaultPosition(.center)
+        .restorationBehavior(.disabled)
+
+        Settings {
+            SettingsWindow()
+                .environment(store)
         }
     }
 }

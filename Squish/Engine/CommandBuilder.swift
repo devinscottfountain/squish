@@ -23,6 +23,10 @@ struct CommandBuilder {
     var media: MediaInfo?
     /// Encoders the local ffmpeg reports. Empty means "unknown, assume everything".
     var encoders: Set<String> = []
+    /// Filters the local ffmpeg reports. Empty means "unknown, assume everything".
+    var filters: Set<String> = []
+
+    private enum ToneMapper { case zscale, videoToolbox, unavailable }
 
     private struct VideoEncoder {
         var name: String
@@ -42,11 +46,28 @@ struct CommandBuilder {
         var warnings: [String] = []
 
         let isImage = s.container.isAnimatedImage
-        let copyVideo = !isImage && s.videoCodec == .copy
+        let audioOnly = s.container.isAudioOnly
+        let copyVideo = !isImage && !audioOnly && s.videoCodec == .copy
         let speed = min(max(s.playbackSpeed, 0.25), 4)
         let sourceAlpha = media?.hasAlpha ?? false
         let alphaOut = s.producesAlpha(sourceHasAlpha: sourceAlpha)
         let alphaInGraph = sourceAlpha || s.alphaMode == .chromaKey
+
+        // HDR: keep it only when asked and the codec can carry it; otherwise map it down to SDR.
+        let hdrSource = media?.isHDR ?? false
+        let keepHDR = hdrSource && s.hdr == .keep && s.canCarryHDR
+        if hdrSource && s.hdr == .keep && !s.canCarryHDR && !audioOnly {
+            warnings.append("\(isImage ? s.container.label : s.videoCodec.label) can't carry HDR, so it'll be converted to SDR. Use HEVC, AV1, VP9 or ProRes to keep it.")
+        }
+        let toneMapper: ToneMapper? = {
+            guard hdrSource && !keepHDR && !copyVideo && !audioOnly else { return nil }
+            if hasFilter("zscale") && hasFilter("tonemap") { return .zscale }
+            if hasFilter("scale_vt") { return .videoToolbox }
+            return .unavailable
+        }()
+        if toneMapper == .unavailable {
+            warnings.append("This ffmpeg build can't tone-map HDR, so colors will look washed out.")
+        }
 
         // Timing
         let sourceDuration = media?.duration ?? 0
@@ -58,23 +79,29 @@ struct CommandBuilder {
 
         // Input
         var head = ["-hide_banner", "-y"]
-        let forceVPX = (media?.needsLibvpxDecoder ?? false) && has("libvpx-vp9")
-        if s.useHardwareDecoder && !forceVPX && !copyVideo { head += ["-hwaccel", "videotoolbox"] }
+        let forceVPX = !audioOnly && (media?.needsLibvpxDecoder ?? false) && has("libvpx-vp9")
+        if s.useHardwareDecoder && !forceVPX && !copyVideo && !audioOnly { head += ["-hwaccel", "videotoolbox"] }
+        if toneMapper == .videoToolbox { head += ["-init_hw_device", "videotoolbox=sq_vt", "-filter_hw_device", "sq_vt"] }
         if start > 0 { head += ["-ss", num(start)] }
         if s.trimEnd > start { head += ["-t", num(s.trimEnd - start)] }
         if forceVPX { head += ["-c:v", "libvpx-vp9"] }
         head += ["-i", input.path]
 
         // Video
-        let encoder = videoEncoder(s, alphaOut: alphaOut, warnings: &warnings)
-        if encoder.name != "copy" && encoder.name != "gif" && !has(encoder.name) {
+        let encoder = audioOnly
+            ? VideoEncoder(name: "none", args: ["-vn"], pixelFormat: nil)
+            : videoEncoder(s, alphaOut: alphaOut, tenBit: keepHDR, warnings: &warnings)
+        if audioOnly && media?.hasAudio == false {
+            warnings.append("This file has no audio track to export.")
+        }
+        if !["copy", "gif", "none"].contains(encoder.name) && !has(encoder.name) {
             warnings.append("This ffmpeg build doesn't include \(encoder.name).")
         }
         let audioPlan = audio(s, speed: copyVideo ? 1 : speed, outDuration: outDuration, warnings: &warnings)
 
         var videoArgs = encoder.args
         var twoPass = false
-        if !isImage && !copyVideo && s.videoCodec != .prores {
+        if !isImage && !audioOnly && !copyVideo && s.videoCodec != .prores {
             let rate = rateControl(s, encoder: encoder.name, outDuration: outDuration, audioKbps: audioPlan.kbps, warnings: &warnings)
             videoArgs += rate.args
             twoPass = rate.twoPass
@@ -90,18 +117,21 @@ struct CommandBuilder {
         }
 
         var filters: [String] = []
-        if copyVideo {
+        if audioOnly {
+            // No picture, so no video filters.
+        } else if copyVideo {
             if s.resolution != .original || s.targetFrameRate != nil || speed != 1 || s.rotation != .none {
                 warnings.append("Passthrough copies the video stream as-is, so frame and speed changes are ignored.")
             }
         } else {
             filters = videoFilters(s, alphaInGraph: alphaInGraph, alphaOut: alphaOut, speed: speed,
-                                   outDuration: outDuration, pixelFormat: encoder.pixelFormat)
+                                   outDuration: outDuration, pixelFormat: encoder.pixelFormat, toneMapper: toneMapper,
+                                   tagUntaggedColor: encoder.name.hasSuffix("_videotoolbox") && !hdrSource)
         }
         let filterArgs = filters.isEmpty ? [] : ["-vf", filters.joined(separator: ",")]
 
-        var maps = ["-map", "0:v:0"]
-        if audioPlan.enabled { maps += ["-map", "0:a:0?"] }
+        var maps = audioOnly ? ["-map", "0:a:0"] : ["-map", "0:v:0"]
+        if audioPlan.enabled && !audioOnly { maps += ["-map", "0:a:0?"] }
 
         // Container, metadata, misc
         var tail: [String] = []
@@ -161,12 +191,15 @@ struct CommandBuilder {
     static func qualityParameter(for s: EncodeSettings) -> (flag: String, value: Int)? {
         let q = min(max(s.quality, 0), 100)
         func crf(_ best: Double, _ worst: Double) -> Int { Int((worst - (worst - best) * q / 100).rounded()) }
-        let vt = Int((35 + q * 0.55).rounded())
+        // Media-engine scales calibrated against x264/x265 on an M4 Pro: H.264 q≈60–65 matches x264 medium
+        // crf 23, and HEVC q≈48 matches x265 medium crf 24–25.
+        let vtH264 = Int((35 + q * 0.55).rounded())
+        let vtHEVC = Int((20 + q * 0.45).rounded())
         if s.container == .webp { return ("-quality", Int(q)) }
-        if s.container.isAnimatedImage { return nil }
+        if s.container.isAnimatedImage || s.container.isAudioOnly { return nil }
         switch s.videoCodec {
-        case .h264: return s.hardwareEncoding ? ("-q:v", vt) : ("-crf", crf(14, 36))
-        case .hevc: return s.hardwareEncoding ? ("-q:v", vt) : ("-crf", crf(16, 38))
+        case .h264: return s.hardwareEncoding ? ("-q:v", vtH264) : ("-crf", crf(14, 36))
+        case .hevc: return s.hardwareEncoding ? ("-q:v", vtHEVC) : ("-crf", crf(16, 38))
         case .av1: return ("-crf", crf(18, 55))
         case .vp9: return ("-crf", crf(15, 50))
         case .prores, .copy: return nil
@@ -175,7 +208,7 @@ struct CommandBuilder {
 
     // MARK: - Video encoder
 
-    private func videoEncoder(_ s: EncodeSettings, alphaOut: Bool, warnings: inout [String]) -> VideoEncoder {
+    private func videoEncoder(_ s: EncodeSettings, alphaOut: Bool, tenBit: Bool, warnings: inout [String]) -> VideoEncoder {
         switch s.container {
         case .gif:
             return VideoEncoder(name: "gif", args: ["-loop", "\(s.loopCount)"], pixelFormat: nil)
@@ -196,14 +229,15 @@ struct CommandBuilder {
 
         let i = s.speed.index
         let x26xPresets = ["veryfast", "faster", "medium", "slow", "veryslow"]
-        let chosen: String? = s.pixelFormat == .auto ? nil : s.pixelFormat.rawValue
+        // Keeping HDR needs 10-bit; 8-bit would band and lose the HDR signal.
+        let chosen: String? = s.pixelFormat == .auto ? (tenBit ? PixelFormat.yuv420p10le.rawValue : nil) : s.pixelFormat.rawValue
 
         switch s.videoCodec {
         case .copy:
             return VideoEncoder(name: "copy", args: ["-c:v", "copy"], pixelFormat: nil)
 
         case .h264:
-            if s.hardwareEncoding {
+            if s.hardwareEncoding && has("h264_videotoolbox") {
                 var args = ["-c:v", "h264_videotoolbox", "-allow_sw", "1"]
                 if s.h264Profile != .auto { args += ["-profile:v", s.h264Profile.rawValue] }
                 var pf = chosen ?? "yuv420p"
@@ -225,7 +259,7 @@ struct CommandBuilder {
             return VideoEncoder(name: "libx264", args: args, pixelFormat: chosen ?? "yuv420p")
 
         case .hevc:
-            if s.hardwareEncoding {
+            if s.hardwareEncoding && has("hevc_videotoolbox") {
                 var args = ["-c:v", "hevc_videotoolbox", "-allow_sw", "1", "-tag:v", "hvc1"]
                 if alphaOut {
                     args += ["-alpha_quality", num(s.hevcAlphaQuality)]
@@ -259,6 +293,14 @@ struct CommandBuilder {
         case .prores:
             var profile = s.proresProfile.rawValue
             if alphaOut && profile < ProResProfile.p4444.rawValue { profile = ProResProfile.p4444.rawValue }
+            // ProRes 422 on the media engine measured about 4× faster than software on an M4 Pro.
+            // 4444 and alpha stay in software until the engine's alpha path is verified.
+            if s.hardwareEncoding && !alphaOut && profile < ProResProfile.p4444.rawValue && has("prores_videotoolbox") {
+                let names = ["proxy", "lt", "standard", "hq"]
+                return VideoEncoder(name: "prores_videotoolbox",
+                                    args: ["-c:v", "prores_videotoolbox", "-profile:v", names[profile]],
+                                    pixelFormat: "p210le")
+            }
             var args = ["-c:v", "prores_ks", "-profile:v", "\(profile)", "-vendor", "apl0"]
             if alphaOut { args += ["-alpha_bits", "16"] }
             let pf = alphaOut ? "yuva444p10le" : (profile >= 4 ? "yuv444p10le" : "yuv422p10le")
@@ -315,9 +357,28 @@ struct CommandBuilder {
     // MARK: - Filters
 
     private func videoFilters(_ s: EncodeSettings, alphaInGraph: Bool, alphaOut: Bool, speed: Double,
-                              outDuration: Double, pixelFormat: String?) -> [String] {
+                              outDuration: Double, pixelFormat: String?, toneMapper: ToneMapper?,
+                              tagUntaggedColor: Bool = false) -> [String] {
         var f: [String] = []
         if s.deinterlace { f.append("yadif=deint=interlaced") }
+
+        // The media engine guesses the color matrix of untagged video and can shift colors (measured on
+        // ProRes). Tag it with what players assume anyway: BT.709 for HD, BT.601 for SD.
+        if tagUntaggedColor, let media, ["", "unknown"].contains(media.colorPrimaries),
+           ["", "unknown"].contains(media.colorTransfer) {
+            let standard = min(media.width, media.height) >= 720 ? "bt709" : "smpte170m"
+            f.append("setparams=color_primaries=\(standard):color_trc=\(standard):colorspace=\(standard)")
+        }
+
+        switch toneMapper {
+        case .zscale:
+            f.append("zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p")
+        case .videoToolbox:
+            // VideoToolbox does the HDR → SDR mapping on the GPU, then the tags are corrected to BT.709.
+            f.append("format=p010le,hwupload,scale_vt=color_matrix=bt709:color_primaries=bt709:color_transfer=bt709,hwdownload,format=p010le,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709")
+        case .unavailable, nil:
+            break
+        }
 
         let cropX = s.cropLeft + s.cropRight
         let cropY = s.cropTop + s.cropBottom
@@ -473,6 +534,7 @@ struct CommandBuilder {
     // MARK: - Helpers
 
     private func has(_ encoder: String) -> Bool { encoders.isEmpty || encoders.contains(encoder) }
+    private func hasFilter(_ name: String) -> Bool { filters.isEmpty || filters.contains(name) }
 }
 
 func num(_ value: Double) -> String {
