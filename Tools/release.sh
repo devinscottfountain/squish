@@ -1,18 +1,33 @@
 #!/bin/zsh
 # Builds a Squish DMG ready to put on the internet.
 #
-#   SQUISH_SOURCE_URL=https://github.com/you/Squish Tools/release.sh --adhoc
+#   SQUISH_SOURCE_URL=https://github.com/devinscottfountain/squish Tools/release.sh --adhoc
 #       Free public release: ad-hoc signed, not notarized. People approve it once on first launch
-#       (README › Install). This is how Squish is released today.
-#   SQUISH_SOURCE_URL=https://github.com/you/Squish Tools/release.sh
-#       Developer ID signed and notarized (needs the paid Apple Developer Program).
+#       (README › Download & install). This is how Squish is released today.
+#   SQUISH_SOURCE_URL=https://github.com/devinscottfountain/squish Tools/release.sh
+#       Developer ID signed and notarized, so it opens without any warning (needs the paid Apple
+#       Developer Program, see below).
 #   Tools/release.sh --local
 #       Same as --adhoc but without a source link, for testing the packaging only.
 #
-# Before the first real release (see README › Releasing):
-#   1. Tools/build-ffmpeg.sh                    builds the bundled ffmpeg
-#   2. A "Developer ID Application" certificate in your keychain (Apple Developer Program)
-#   3. xcrun notarytool store-credentials squish-notary
+# One-time setup:
+#   brew install xcodegen cmake pkgconf autoconf automake libtool
+#   Tools/build-ffmpeg.sh       static arm64 ffmpeg + ffprobe with x264, x265 (8/10/12-bit), SVT-AV1,
+#                               libvpx, Opus, LAME, libwebp, zimg. Takes a while; resumes if interrupted.
+#
+# Each release:
+#   1. Bump MARKETING_VERSION (and CURRENT_PROJECT_VERSION) in project.yml, and commit.
+#   2. Run this script with --adhoc (above). It makes dist/Squish-<version>.dmg.
+#   3. Publish it; this also creates the v<version> tag:
+#        gh release create v<version> dist/Squish-<version>.dmg --title "Squish <version>" --notes "…"
+#
+# Licensing: the bundled ffmpeg is built with --enable-gpl --enable-version3, so Squish is GPL v3 and
+# every release must point at its source. That's what SQUISH_SOURCE_URL records in the app's notices.
+#
+# Only for Developer ID releases (paid program):
+#   - A "Developer ID Application" certificate in your keychain (Xcode › Settings › Accounts).
+#   - xcrun notarytool store-credentials squish-notary --apple-id <email> --team-id <team id>
+#     (prompts for an app-specific password from account.apple.com)
 #
 # Environment:
 #   SIGN_IDENTITY       codesigning identity (default: "Developer ID Application")

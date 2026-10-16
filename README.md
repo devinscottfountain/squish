@@ -88,31 +88,6 @@ It runs ffmpeg as a separate process, so the App Sandbox is off.
 
 The tests (`SquishTests`, Swift Testing) cover the command builder and also run real encodes with your ffmpeg.
 
-## Releasing
-
-Releases are a DMG with a standalone ffmpeg inside, so nobody needs Homebrew.
-
-**One-time:** build the bundled ffmpeg. It's a static arm64 build with x264, x265 (8/10/12-bit), SVT-AV1, libvpx, Opus, LAME, libwebp and zimg. It takes a while, and resumes if interrupted:
-
-```bash
-brew install cmake pkgconf autoconf automake libtool
-Tools/build-ffmpeg.sh
-```
-
-**Each release:**
-1. Bump `MARKETING_VERSION` (and `CURRENT_PROJECT_VERSION`) in `project.yml`, and commit.
-2. Build and package:
-   ```bash
-   SQUISH_SOURCE_URL=https://github.com/devinscottfountain/squish Tools/release.sh --adhoc
-   ```
-   This makes `dist/Squish-<version>.dmg`, ad-hoc signed and not notarized. That's free, and people approve it once on first launch (see [Download & install](#download--install)).
-3. Tag the commit, then upload the DMG to a GitHub Release:
-   ```bash
-   gh release create v<version> dist/Squish-<version>.dmg --title "Squish <version>" --notes "…"
-   ```
-
-**Optional: Developer ID signing.** With a paid Apple Developer Program membership, drop `--adhoc` and Squish is signed and notarized, so it opens without any warning. This needs a "Developer ID Application" certificate in your keychain and `xcrun notarytool store-credentials squish-notary` (see the comments at the top of `Tools/release.sh`).
-
 ## How it's built
 
 | Path | What it does |
