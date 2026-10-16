@@ -3,6 +3,11 @@ import SwiftUI
 
 /// Credits, shown from Squish › About Squish and in Settings › About.
 struct AboutView: View {
+    /// Release builds ship license texts and source links in Contents/Resources/Licenses.
+    static var licensesFolder: URL? {
+        Bundle.main.url(forResource: "Licenses", withExtension: nil)
+    }
+
     private var version: String {
         let info = Bundle.main.infoDictionary
         let short = info?["CFBundleShortVersionString"] as? String ?? "–"
@@ -56,8 +61,16 @@ struct AboutView: View {
                     Link("FFmpeg", destination: URL(string: "https://ffmpeg.org")!)
                         .foregroundStyle(Theme.orange)
                 }
-                Text("Squish runs the copy of ffmpeg installed on this Mac. FFmpeg is a trademark of Fabrice Bellard.")
+                Text(Self.licensesFolder != nil
+                     ? "Squish includes ffmpeg and its libraries under the GNU GPL v3, and is itself GPL v3. FFmpeg is a trademark of Fabrice Bellard."
+                     : "Squish runs the copy of ffmpeg installed on this Mac. FFmpeg is a trademark of Fabrice Bellard.")
                 Text("Symbols: SF Symbols by Apple.")
+                if let licenses = Self.licensesFolder {
+                    Button("Licenses") { NSWorkspace.shared.open(licenses) }
+                        .buttonStyle(MiniChipStyle(selected: false))
+                        .help("Squish's license, ffmpeg's and every bundled library's, with source links")
+                        .padding(.top, 4)
+                }
             }
             .font(.system(size: 11))
             .foregroundStyle(Theme.tertiary)

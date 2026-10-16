@@ -10,7 +10,34 @@ xcodegen generate              # regenerate Squish.xcodeproj after adding files
 open Squish.xcodeproj          # ⌘R
 ```
 
-Squish finds `ffmpeg`/`ffprobe` in `/opt/homebrew/bin`, `/usr/local/bin`, `/opt/local/bin`, a bundled copy, or any binary you pick with **Locate…**. It runs ffmpeg as a child process, so the App Sandbox is off.
+Squish looks for ffmpeg/ffprobe in this order: a binary you picked with **Locate…**, the copy bundled inside the app (`Contents/Helpers`, release builds), then `/opt/homebrew/bin`, `/usr/local/bin`, `/opt/local/bin` and `/usr/bin`. It runs ffmpeg as a child process, so the App Sandbox is off.
+
+## Releasing
+
+Squish ships as a signed, notarized DMG with its own ffmpeg inside, so people don't need Homebrew.
+
+**One-time setup**
+1. **Join the Apple Developer Program** ($99/year), then create a **Developer ID Application** certificate in Xcode › Settings › Accounts › Manage Certificates.
+2. **Save notary credentials** in your keychain. This takes your Apple ID and an app-specific password from account.apple.com, plus your team ID:
+   ```bash
+   xcrun notarytool store-credentials squish-notary
+   ```
+3. **Build the bundled ffmpeg.** It's a static arm64 build with x264, x265 (8/10/12-bit), SVT-AV1, libvpx, Opus, LAME, libwebp and zimg. It takes several minutes and resumes if interrupted:
+   ```bash
+   brew install cmake pkgconf autoconf automake libtool
+   Tools/build-ffmpeg.sh
+   ```
+
+**Each release**
+1. Bump `MARKETING_VERSION` (and `CURRENT_PROJECT_VERSION`) in `project.yml`.
+2. Build, sign, notarize and package:
+   ```bash
+   SQUISH_SOURCE_URL=https://github.com/<you>/Squish Tools/release.sh
+   ```
+   This makes `dist/Squish-<version>.dmg`. Use `Tools/release.sh --local` for an ad-hoc signed test build that skips notarization (it only opens on your own Mac).
+3. Upload the DMG to a GitHub Release, along with the source. GitHub Releases are free and give you a stable download link.
+
+**Licensing.** The bundled ffmpeg is built with `--enable-gpl --enable-version3`, so Squish is distributed under the GNU GPL v3 (see `LICENSE`). Each release must make Squish's source available: that's what `SQUISH_SOURCE_URL` records in the app's notices. The app includes every library's license, plus a notices file listing exact source versions and checksums. You can open them from **About › Licenses**.
 
 ## How it's built
 

@@ -107,7 +107,7 @@ private struct FFmpegSettings: View {
                 LabeledContent("Status") {
                     HStack(spacing: 6) {
                         Circle().fill(env.isAvailable ? Theme.green : Theme.red).frame(width: 8, height: 8)
-                        Text(env.isChecking ? "Checking…" : (env.isAvailable ? "ffmpeg \(env.version ?? "")\(env.isTranslated ? " · Intel (Rosetta)" : " · Apple silicon")" : "Not found"))
+                        Text(env.isChecking ? "Checking…" : (env.isAvailable ? "ffmpeg \(env.version ?? "") · \(env.source)\(env.isTranslated ? " · Intel (Rosetta)" : "")" : "Not found"))
                     }
                 }
                 LabeledContent("Location") {

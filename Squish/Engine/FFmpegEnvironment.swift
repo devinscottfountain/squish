@@ -18,6 +18,16 @@ final class FFmpegEnvironment {
 
     var isAvailable: Bool { ffmpeg != nil }
 
+    /// The ffmpeg shipped inside Squish.app (release builds), next to its ffprobe.
+    static let bundledBinary = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/ffmpeg")
+
+    /// Where the ffmpeg in use came from, for display.
+    var source: String {
+        guard let ffmpeg else { return "" }
+        if ffmpeg.standardizedFileURL == Self.bundledBinary.standardizedFileURL { return "Bundled" }
+        return hasCustomBinary ? "Custom" : "Installed"
+    }
+
     func refresh() async {
         isChecking = true
         defer { isChecking = false }
@@ -26,7 +36,8 @@ final class FFmpegEnvironment {
         if let custom = UserDefaults.standard.string(forKey: Self.customPathKey) {
             candidates.append(URL(fileURLWithPath: custom))
         }
-        if let bundled = Bundle.main.url(forAuxiliaryExecutable: "ffmpeg") { candidates.append(bundled) }
+        // A binary the user picked wins; then the copy inside the app; then Homebrew and friends.
+        candidates.append(Self.bundledBinary)
         candidates += Self.searchDirectories.map { URL(fileURLWithPath: $0).appendingPathComponent("ffmpeg") }
 
         let fm = FileManager.default
