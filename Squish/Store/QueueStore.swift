@@ -234,9 +234,11 @@ final class QueueStore {
     var hasFinished: Bool { jobs.contains { $0.status == .done } }
 
     func add(urls: [URL]) {
-        for url in expand(urls) where !jobs.contains(where: { $0.input == url }) {
+        let fresh = expand(urls).filter { url in !jobs.contains(where: { $0.input == url }) }
+        for (index, url) in fresh.enumerated() {
             let job = EncodeJob(input: url)
-            withAnimation(.snappy) { jobs.append(job) }
+            // Rows cascade in 40 ms apart (capped, so a folder of 200 clips doesn't take seconds).
+            withAnimation(Motion.out(0.25).delay(Double(min(index, 8)) * 0.04)) { jobs.append(job) }
             Task { await probe(job) }
         }
         saveQueue()
@@ -248,17 +250,22 @@ final class QueueStore {
         saveQueue()
     }
 
-    func clearFinished() {
-        withAnimation(.snappy) { jobs.removeAll { $0.status == .done } }
+    /// - Parameter animated: false for keyboard shortcuts, which should feel instant.
+    func clearFinished(animated: Bool = true) {
+        if animated {
+            withAnimation(Motion.exit) { jobs.removeAll { $0.status == .done } }
+        } else {
+            jobs.removeAll { $0.status == .done }
+        }
         saveQueue()
         guard jobs.isEmpty else { return }
         // A short "All squished." in the empty state, then back to normal.
         allSquishedTask?.cancel()
-        withAnimation(.easeOut(duration: 0.3)) { showAllSquished = true }
+        withAnimation(Motion.out(0.25)) { showAllSquished = true }
         allSquishedTask = Task {
             try? await Task.sleep(for: .seconds(3))
             guard !Task.isCancelled else { return }
-            withAnimation(.easeInOut(duration: 0.5)) { showAllSquished = false }
+            withAnimation(Motion.out(0.2)) { showAllSquished = false }
         }
     }
 
@@ -367,7 +374,10 @@ final class QueueStore {
         if isVideo && s.videoCodec != .prores {
             switch s.rateControl {
             case .targetSize:
-                return Int64(s.targetSizeMB * 1_000_000 * 0.97)
+                // The limit is a ceiling; files already under it stay about the size they are.
+                let kept = SampleEncoder.keptRange(s, media: media)
+                let current = Int64(Double(job.inputSize) * (kept.upperBound - kept.lowerBound) / media.duration)
+                return min(Int64(s.targetSizeMB * 1_000_000 * 0.97), current)
             case .bitrate, .constant:
                 return Int64(Double(s.videoBitrateKbps + audioKbps) * 1000 / 8 * outDuration)
             case .quality:

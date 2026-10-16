@@ -69,7 +69,7 @@ struct PillSegmented<T: Hashable>: View {
                     }
                     .contentShape(Capsule())
                     .onTapGesture {
-                        withAnimation(.snappy(duration: 0.22)) { selection = option }
+                        withAnimation(Motion.out(0.22)) { selection = option }
                     }
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(label(option))
@@ -121,7 +121,7 @@ struct PillMenu<T: Hashable>: View {
             .contentShape(Capsule())
         }
         .menuStyle(.button)
-        .buttonStyle(.plain)
+        .buttonStyle(PressableStyle())
         .menuIndicator(.hidden)
         .fixedSize()
     }
@@ -289,7 +289,7 @@ struct ChipRow<T: Hashable>: View {
                 let selected = option == selection
                 let reason = unavailable(option)
                 Button {
-                    withAnimation(.snappy(duration: 0.2)) { selection = option }
+                    withAnimation(Motion.out(0.2)) { selection = option }
                 } label: {
                     Text(label(option))
                         .font(.system(size: 12, weight: .semibold))
@@ -300,7 +300,7 @@ struct ChipRow<T: Hashable>: View {
                         .background(Capsule().fill(selected ? Theme.text : Theme.field))
                         .contentShape(Capsule())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(PressableStyle())
                 .disabled(reason != nil && !selected)
                 .opacity(reason != nil && !selected ? 0.4 : 1)
                 .help(reason.map { "Needs \($0), which this ffmpeg doesn't include" } ?? "")
@@ -316,6 +316,7 @@ struct SettingsSection<Content: View>: View {
     let tint: Color
     var badge: String? = nil
     @State private var expanded: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let content: Content
 
     init(_ title: String, symbol: String, tint: Color, badge: String? = nil, expanded: Bool = false,
@@ -331,10 +332,10 @@ struct SettingsSection<Content: View>: View {
     var body: some View {
         VStack(spacing: 0) {
             Button {
-                withAnimation(.snappy(duration: 0.25)) { expanded.toggle() }
+                withAnimation(Motion.out(0.22)) { expanded.toggle() }
             } label: {
                 HStack(spacing: 10) {
-                    Image(systemName: symbol)
+                    StateIcon(symbol: symbol, filled: expanded)
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(tint)
                         .frame(width: 24, height: 24)
@@ -357,7 +358,8 @@ struct SettingsSection<Content: View>: View {
                 .padding(.vertical, 10)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            // Full-width row: no press scale; the chevron and the reveal are the feedback.
+            .buttonStyle(PressableStyle(isStatic: true))
             .accessibilityLabel(badge.map { "\(title), \($0)" } ?? title)
             .accessibilityValue(expanded ? "Expanded" : "Collapsed")
 
@@ -367,7 +369,7 @@ struct SettingsSection<Content: View>: View {
                 }
                 .padding(.top, 4)
                 .padding(.bottom, 14)
-                .transition(.opacity.combined(with: .move(edge: .top)))
+                .transition(.reveal(reduceMotion: reduceMotion))
             }
         }
         .padding(.horizontal, 12)

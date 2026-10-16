@@ -16,7 +16,7 @@ struct QuickPreset: Identifiable {
             s.audioBitrateKbps = 128
         },
         QuickPreset(id: "10mb", name: "Under 10 MB", detail: "Discord, Slack, email",
-                    symbol: "paperplane.fill", tint: Theme.lilac) { s in
+                    symbol: "paperplane", tint: Theme.lilac) { s in
             s.rateControl = .targetSize
             s.targetSizeMB = 10
             s.useHardwareEncoder = false // two-pass software lands much closer to the target
@@ -63,7 +63,7 @@ struct QuickPreset: Identifiable {
             s.audioBitrateKbps = 256
         },
         QuickPreset(id: "archive", name: "Archive", detail: "10-bit HEVC, lossless audio",
-                    symbol: "archivebox.fill", tint: Theme.red) { s in
+                    symbol: "archivebox", tint: Theme.red) { s in
             s.container = .mkv
             s.videoCodec = .hevc
             s.useHardwareEncoder = false // smallest files matter more than speed here

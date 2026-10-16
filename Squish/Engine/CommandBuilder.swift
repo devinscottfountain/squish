@@ -349,7 +349,13 @@ struct CommandBuilder {
             let video = Int(totalKbps) - audioKbps
             if video < 150 { warnings.append("That size is tight for this length. Expect heavy artifacts, or drop the resolution.") }
             if isHardware { warnings.append("Hardware encoders can overshoot a size target; software is more precise.") }
-            let k = max(video, 50)
+            var k = max(video, 50)
+            // A size limit is a ceiling, not a goal: never spend more bits than the source already uses,
+            // or a small clip would be inflated to fill the limit.
+            if let source = media?.bitRate, source > 0 {
+                let sourceVideo = max(source / 1000 - audioKbps, 50)
+                k = min(k, sourceVideo)
+            }
             return (["-b:v", "\(k)k", "-maxrate", "\(k * 3 / 2)k", "-bufsize", "\(k * 2)k"], twoPassCapable)
         }
     }

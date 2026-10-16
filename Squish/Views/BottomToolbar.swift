@@ -49,7 +49,7 @@ struct ToolButton: View {
                 .background(Circle().fill(active || hovering ? Theme.field : .clear))
                 .contentShape(Circle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressableStyle())
         .help(help)
         .accessibilityLabel(help)
         .accessibilityAddTraits(active ? .isSelected : [])
@@ -70,13 +70,13 @@ struct StatsPill: View {
 
         HStack(spacing: 10) {
             Image(systemName: "film.stack")
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(Theme.indigo)
             Text(jobs.count == 1 ? "1 file" : "\(jobs.count) files")
                 .foregroundStyle(Theme.text)
             if doneIn > 0 {
                 Text(Format.bytes(doneIn)).foregroundStyle(Theme.secondary)
-                Image(systemName: "arrow.right").font(.system(size: 10, weight: .bold)).foregroundStyle(Theme.tertiary)
+                Image(systemName: "arrow.right").font(.system(size: 10, weight: .medium)).foregroundStyle(Theme.tertiary)
                 CountUpText(value: Double(doneOut)) { Format.bytes(Int64($0)) }
                     .foregroundStyle(Theme.green)
                 let saved = 1 - Double(doneOut) / Double(doneIn)
@@ -88,7 +88,7 @@ struct StatsPill: View {
                 if !pending.isEmpty, pending.allSatisfy({ $0.estimate != nil && !$0.isEstimating }) {
                     let estimate = pending.reduce(Int64(0)) { $0 + ($1.estimate ?? 0) }
                     let pendingIn = pending.reduce(Int64(0)) { $0 + $1.inputSize }
-                    Image(systemName: "arrow.right").font(.system(size: 10, weight: .bold)).foregroundStyle(Theme.tertiary)
+                    Image(systemName: "arrow.right").font(.system(size: 10, weight: .medium)).foregroundStyle(Theme.tertiary)
                     Text("≈ \(Format.bytes(estimate))").foregroundStyle(Theme.green.opacity(0.75))
                         .help("Estimated from a short sample encode with the current settings")
                     if pendingIn > 0 {
@@ -125,10 +125,19 @@ struct StartButton: View {
             running ? store.stop() : store.start(only: nil)
         } label: {
             HStack(spacing: 8) {
-                Image(systemName: running ? "stop.fill" : "play.fill")
-                    .font(.system(size: 12, weight: .bold))
-                Text(running ? "Stop" : "Squish")
-                    .font(.system(size: 14, weight: .semibold))
+                // Play ⇄ stop is a contextual icon swap; the label crossfades with a short blur.
+                ZStack {
+                    Image(systemName: running ? "stop.fill" : "play.fill")
+                        .font(.system(size: 12, weight: .semibold))
+                        .id(running)
+                        .transition(.iconSwap)
+                }
+                ZStack {
+                    Text(running ? "Stop" : "Squish")
+                        .font(.system(size: 14, weight: .semibold))
+                        .id(running)
+                        .transition(.blurFade)
+                }
                 if !running && count > 0 {
                     Text("\(count)")
                         .font(.system(size: 11, weight: .bold).monospacedDigit())
@@ -138,14 +147,17 @@ struct StartButton: View {
                 }
             }
             .foregroundStyle(running ? Theme.red : .white)
-            .padding(.horizontal, 20)
+            // Optical balance: the icon side gets 2 pt less padding than the text side.
+            .padding(.leading, 18)
+            .padding(.trailing, 20)
             .frame(height: 50)
             .contentShape(Capsule())
             .glass(in: Capsule(), tint: running ? nil : Theme.orange.opacity(0.85), interactive: true)
             .brightness(hovering && enabled ? 0.05 : 0)
             .shadow(color: (running ? Color.black : Theme.orange).opacity(0.35), radius: 16, y: 8)
+            .animation(Motion.icon, value: running)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressableStyle())
         .disabled(!enabled)
         .opacity(enabled ? 1 : 0.45)
         .onHover { hovering = $0 }
@@ -233,7 +245,8 @@ struct CountUpText: View {
 
     var body: some View {
         CountingText(value: shown, format: format)
-            .onAppear { roll(to: value) }
+            // No count-up when the window first opens; only real changes roll.
+            .onAppear { shown = value }
             .onChange(of: value) { roll(to: value) }
             .accessibilityLabel(format(value))
     }
@@ -257,4 +270,19 @@ private struct CountingText: View, Animatable {
     }
 
     var body: some View { Text(format(value)) }
+}
+
+// MARK: - Blur crossfade
+
+private struct BlurFade: ViewModifier {
+    var amount: CGFloat
+
+    func body(content: Content) -> some View {
+        content.blur(radius: amount).opacity(amount == 0 ? 1 : 0)
+    }
+}
+
+extension AnyTransition {
+    /// Crossfade with a slight blur, so a label change reads as one thing morphing.
+    static let blurFade = AnyTransition.modifier(active: BlurFade(amount: 4), identity: BlurFade(amount: 0))
 }

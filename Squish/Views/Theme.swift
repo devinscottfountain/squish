@@ -52,3 +52,98 @@ extension Color {
                       Int((c.blueComponent * 255).rounded()))
     }
 }
+
+/// Shared motion so every animation in the app feels like it came from the same hand.
+/// Strong custom curves (the built-in ones are too soft), and nothing over 300 ms in regular UI.
+enum Motion {
+    /// Strong ease-out: things that respond to the user or enter the screen.
+    static func out(_ duration: Double = 0.2) -> Animation { .timingCurve(0.23, 1, 0.32, 1, duration: duration) }
+    /// Strong ease-in-out: things already on screen moving to a new place.
+    static func move(_ duration: Double = 0.28) -> Animation { .timingCurve(0.77, 0, 0.175, 1, duration: duration) }
+    /// Press feedback: fast enough to feel like the button heard you.
+    static let press = out(0.16)
+    /// Hover: frequent, so short and plain.
+    static let hover = Animation.easeInOut(duration: 0.15)
+    /// Exits are quicker than entrances.
+    static let exit = out(0.15)
+    /// Contextual icon swaps: a spring with no bounce.
+    static let icon = Animation.spring(duration: 0.3, bounce: 0)
+}
+
+/// Every pressable control shrinks to 0.96 while held, so it feels like it's listening.
+/// One value everywhere (below 0.95 reads as exaggerated); `isStatic` turns it off where
+/// the motion would distract, such as full-width rows.
+struct PressableStyle: ButtonStyle {
+    var isStatic = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed && !isStatic ? 0.96 : 1)
+            .animation(Motion.press, value: configuration.isPressed)
+    }
+}
+
+/// Icon swap values: scale 0.25 → 1, opacity 0 → 1, blur 4 → 0.
+struct IconSwapEffect: ViewModifier {
+    var shown: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(shown ? 1 : 0.25)
+            .opacity(shown ? 1 : 0)
+            .blur(radius: shown ? 0 : 4)
+    }
+}
+
+/// A staged entrance step: opacity, a 12 pt rise and a 4 pt blur.
+struct StagedEnterEffect: ViewModifier {
+    var shown: Bool
+    var reduceMotion: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(shown ? 1 : 0)
+            .offset(y: shown || reduceMotion ? 0 : 12)
+            .blur(radius: shown || reduceMotion ? 0 : 4)
+    }
+}
+
+/// Outline by default, fill when active, cross-faded with the icon swap values.
+struct StateIcon: View {
+    let symbol: String
+    let filled: Bool
+
+    var body: some View {
+        ZStack {
+            Image(systemName: symbol).modifier(IconSwapEffect(shown: !filled))
+            Image(systemName: symbol).symbolVariant(.fill).modifier(IconSwapEffect(shown: filled))
+        }
+        .animation(Motion.icon, value: filled)
+    }
+}
+
+extension AnyTransition {
+    /// Small lift and fade for content that appears in place (details, sections). Never from nothing,
+    /// never from far away. With Reduce Motion it's a fade only.
+    static func reveal(reduceMotion: Bool) -> AnyTransition {
+        let enter: AnyTransition = reduceMotion
+            ? .opacity
+            : .opacity.combined(with: .offset(y: -6)).combined(with: .scale(scale: 0.98, anchor: .top))
+        // Exits are softer and quicker than entrances: just fade.
+        return .asymmetric(insertion: enter, removal: .opacity.animation(Motion.exit))
+    }
+
+    /// Contextual icon appearing or disappearing (hover actions, state swaps).
+    static let iconSwap = AnyTransition.modifier(active: IconSwapEffect(shown: false), identity: IconSwapEffect(shown: true))
+        .animation(Motion.icon)
+
+    /// One step of a staged entrance (~100 ms apart); leaves with a quick fade.
+    static func stagedEnter(delay: Double, reduceMotion: Bool) -> AnyTransition {
+        .asymmetric(
+            insertion: .modifier(active: StagedEnterEffect(shown: false, reduceMotion: reduceMotion),
+                                 identity: StagedEnterEffect(shown: true, reduceMotion: reduceMotion))
+                .animation(Motion.out(0.4).delay(delay)),
+            removal: .opacity.animation(Motion.exit)
+        )
+    }
+}

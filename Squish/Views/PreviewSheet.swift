@@ -161,6 +161,8 @@ struct PreviewSheet: View {
             .resizable()
             .interpolation(zoom == .actual ? .none : .high)
             .frame(width: size.width, height: size.height)
+            // Neutral inset hairline (pure white at 10% on this dark UI) for consistent depth.
+            .overlay(Rectangle().strokeBorder(Color.white.opacity(0.1), lineWidth: 1))
     }
 
     private func divider(height: CGFloat) -> some View {

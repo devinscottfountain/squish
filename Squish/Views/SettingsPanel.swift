@@ -11,7 +11,8 @@ struct SettingsPanel: View {
                 PillSegmented(selection: $store.mode, options: [.simple, .advanced], stretch: true) {
                     $0 == .simple ? "Simple" : "Advanced"
                 }
-                .padding(14)
+                // Concentric with the card: card radius 22 = switcher radius ~17 + 5 inset.
+                .padding(5)
 
                 Rectangle().fill(Theme.divider).frame(height: 1)
 
@@ -102,7 +103,7 @@ struct SimpleSettingsView: View {
                     SectionLabel("Your presets")
                     LazyVGrid(columns: columns, spacing: 8) {
                         ForEach(store.savedPresets) { preset in
-                            PresetTile(name: preset.name, detail: preset.settings.summaryText, symbol: "star.fill",
+                            PresetTile(name: preset.name, detail: preset.settings.summaryText, symbol: "star",
                                        tint: Theme.lilac, selected: store.selectedPresetID == preset.selectionID) {
                                 store.apply(preset)
                             }
@@ -295,7 +296,7 @@ struct PresetTile: View {
     var body: some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 9) {
-                Image(systemName: symbol)
+                StateIcon(symbol: symbol, filled: selected)
                     .font(.system(size: 11.5, weight: .semibold))
                     .foregroundStyle(tint)
                     .frame(width: 26, height: 26)
@@ -324,7 +325,7 @@ struct PresetTile: View {
             )
             .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressableStyle())
         .disabled(unavailable != nil)
         .opacity(unavailable != nil ? 0.5 : 1)
         .onHover { hovering = $0 }
@@ -358,8 +359,8 @@ struct SavePresetTile: View {
             )
             .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
-        .buttonStyle(.plain)
-        .onHover { h in withAnimation(.easeOut(duration: 0.15)) { hovering = h } }
+        .buttonStyle(PressableStyle())
+        .onHover { h in withAnimation(Motion.hover) { hovering = h } }
         .accessibilityLabel("Save current settings as a preset")
     }
 }
@@ -374,7 +375,12 @@ struct MiniChipStyle: ButtonStyle {
             .padding(.horizontal, 9)
             .padding(.vertical, 4)
             .background(Capsule().fill(selected ? Theme.text : Theme.field))
-            .opacity(configuration.isPressed ? 0.7 : 1)
+            // ~40 pt tall hit area without changing layout; 3 pt sideways keeps neighbors (6 pt apart) from overlapping.
+            .padding(.horizontal, 3).padding(.vertical, 9)
+            .contentShape(Rectangle())
+            .padding(.horizontal, -3).padding(.vertical, -9)
+            .scaleEffect(configuration.isPressed ? 0.96 : 1)
+            .animation(Motion.press, value: configuration.isPressed)
     }
 }
 
@@ -411,7 +417,7 @@ struct AdvancedSettingsView: View {
 
     @ViewBuilder
     private func formatSection(_ s: EncodeSettings, isImage: Bool) -> some View {
-        SettingsSection("Format", symbol: "shippingbox.fill", tint: Theme.orange,
+        SettingsSection("Format", symbol: "shippingbox", tint: Theme.orange,
                         badge: isImage ? s.container.label
                             : "\(s.container.label) · \(s.container.isAudioOnly ? s.audioCodec.label : s.videoCodec.label)",
                         expanded: true) {
@@ -440,7 +446,10 @@ struct AdvancedSettingsView: View {
                     Switch(isOn: store.bind(\.useHardwareDecoder))
                 }
             }
-            ForEach(store.plan(for: store.jobs.first).warnings, id: \.self) { Note(text: $0) }
+            // Only warn about a real file; a placeholder has no duration or streams to judge.
+            if let job = store.jobs.first {
+                ForEach(store.plan(for: job).warnings, id: \.self) { Note(text: $0) }
+            }
         }
     }
 
@@ -448,7 +457,7 @@ struct AdvancedSettingsView: View {
 
     @ViewBuilder
     private func videoSection(_ s: EncodeSettings) -> some View {
-        SettingsSection("Video", symbol: "film.fill", tint: Theme.yellow, badge: rateBadge(s)) {
+        SettingsSection("Video", symbol: "film", tint: Theme.yellow, badge: rateBadge(s)) {
             if s.videoCodec == .prores {
                 SettingRow(title: "Profile") {
                     PillMenu(selection: store.bind(\.proresProfile), options: ProResProfile.allCases) { $0.label }
@@ -532,7 +541,7 @@ struct AdvancedSettingsView: View {
 
     @ViewBuilder
     private func animationSection(_ s: EncodeSettings) -> some View {
-        SettingsSection("Animation", symbol: "photo.stack.fill", tint: Theme.pink, badge: s.container.label, expanded: true) {
+        SettingsSection("Animation", symbol: "photo.stack", tint: Theme.pink, badge: s.container.label, expanded: true) {
             if s.container == .gif {
                 SliderRow(title: "Palette colors", value: Binding(get: { Double(s.gifMaxColors) }, set: { store.settings.gifMaxColors = Int($0) }),
                           range: 2...256, step: 2) { "\(Int($0))" }
@@ -558,7 +567,7 @@ struct AdvancedSettingsView: View {
 
     @ViewBuilder
     private func frameSection(_ s: EncodeSettings) -> some View {
-        SettingsSection("Frame", symbol: "aspectratio.fill", tint: Theme.teal, badge: frameBadge(s)) {
+        SettingsSection("Frame", symbol: "aspectratio", tint: Theme.teal, badge: frameBadge(s)) {
             SettingRow(title: "Resolution", hint: "Short edge, so portrait works too") {
                 PillMenu(selection: store.bind(\.resolution), options: ResolutionPreset.allCases) { $0.label }
             }
@@ -750,7 +759,7 @@ struct AdvancedSettingsView: View {
 
     @ViewBuilder
     private func metadataSection(_ s: EncodeSettings) -> some View {
-        SettingsSection("Metadata", symbol: "tag.fill", tint: Theme.pink, badge: s.stripMetadata ? "Stripped" : nil) {
+        SettingsSection("Metadata", symbol: "tag", tint: Theme.pink, badge: s.stripMetadata ? "Stripped" : nil) {
             SettingRow(title: "Strip everything", hint: "Camera, dates, GPS, encoder tags") {
                 Switch(isOn: store.bind(\.stripMetadata))
             }
@@ -769,7 +778,7 @@ struct AdvancedSettingsView: View {
 
     @ViewBuilder
     private func outputSection(_ s: EncodeSettings) -> some View {
-        SettingsSection("Output", symbol: "folder.fill", tint: Theme.secondary,
+        SettingsSection("Output", symbol: "folder", tint: Theme.secondary,
                         badge: s.outputLocation == .folder ? URL(fileURLWithPath: s.outputFolderPath).lastPathComponent : s.outputLocation.label) {
             PillSegmented(selection: store.bind(\.outputLocation), options: OutputLocation.allCases, stretch: true, compact: true) { $0.label }
             if s.outputLocation == .folder {

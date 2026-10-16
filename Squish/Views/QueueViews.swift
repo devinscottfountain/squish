@@ -26,7 +26,7 @@ struct QueueCard: View {
                             .buttonStyle(MiniChipStyle(selected: false))
                     }
                     Text(store.jobs.count == 1 ? "1 task" : "\(store.jobs.count) tasks")
-                        .font(.system(size: 15))
+                        .font(.system(size: 15).monospacedDigit())
                         .foregroundStyle(Theme.secondary)
                 }
                 .padding(.horizontal, 20)
@@ -42,7 +42,11 @@ struct QueueCard: View {
                 }
 
                 if store.jobs.isEmpty {
-                    DropZone().padding(16)
+                    // Concentric with the card: card radius 22 = zone radius 12 + 10 inset.
+                    DropZone().padding(10)
+                        // Leaves fast so it never sits under the first rows as they arrive.
+                        .transition(.asymmetric(insertion: .opacity.animation(Motion.out(0.25)),
+                                                removal: .opacity.animation(Motion.out(0.08))))
                 } else {
                     ScrollView {
                         LazyVStack(spacing: 0) {
@@ -72,6 +76,8 @@ struct QueueCard: View {
                                         rowFrames[job.id] = $0
                                     }
                                     .gesture(reorderGesture(for: job))
+                                    .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 8)),
+                                                            removal: .opacity))
                             }
                             Color.clear
                                 .frame(height: 40)
@@ -187,40 +193,48 @@ struct DropZone: View {
                         .rotationEffect(.degrees(reduceMotion ? 0 : context.date.timeIntervalSinceReferenceDate
                             .truncatingRemainder(dividingBy: 24) / 24 * 360))
                 }
-                Image(systemName: allDone ? "checkmark" : "arrow.down")
+                // Both icons stay mounted and cross-fade with the icon swap values.
+                Image(systemName: "arrow.down")
                     .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(allDone ? Theme.yellow : Theme.orange)
+                    .foregroundStyle(Theme.orange)
                     .offset(y: hovering && !allDone ? 2 : 0)
-                    .contentTransition(.symbolEffect(.replace))
+                    .modifier(IconSwapEffect(shown: !allDone))
+                Image(systemName: "checkmark")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(Theme.yellow)
+                    .modifier(IconSwapEffect(shown: allDone))
             }
+            .animation(Motion.icon, value: allDone)
             .frame(width: 64, height: 64)
-            VStack(spacing: 14) {
+            // A short staged entrance: title, then the line under it, ~100 ms apart. The old copy fades
+            // out first, and each line sits in a ZStack so old and new overlap in place.
+            ZStack {
                 Text(allDone ? "All squished." : "Drop videos here")
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(Theme.text)
+                    .id("title-\(allDone)")
+                    .transition(.stagedEnter(delay: 0.1, reduceMotion: reduceMotion))
+            }
+            ZStack {
                 Text(allDone ? "Drop more whenever you're ready." : "MP4, MOV, MKV, WebM, GIF, ProRes. Anything ffmpeg can read. Folders too.")
                     .font(.system(size: 12))
                     .foregroundStyle(Theme.secondary)
                     .multilineTextAlignment(.center)
+                    .id("line-\(allDone)")
+                    .transition(.stagedEnter(delay: 0.2, reduceMotion: reduceMotion))
             }
-            // Old copy leaves quickly before the new copy arrives, so the two never overlap.
-            .id(allDone)
-            .transition(.asymmetric(
-                insertion: .opacity.animation(.easeOut(duration: 0.25).delay(0.14)),
-                removal: .opacity.animation(.easeIn(duration: 0.12))
-            ))
             Button("Browse…") { store.presentOpenPanel() }
                 .buttonStyle(MiniChipStyle(selected: false))
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [6, 6]))
                 .foregroundStyle(hovering ? Theme.secondary : Color.white.opacity(0.12))
         )
         .contentShape(Rectangle())
-        .onHover { h in withAnimation(.snappy) { hovering = h } }
+        .onHover { h in withAnimation(Motion.hover) { hovering = h } }
         .onTapGesture { store.presentOpenPanel() }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Add videos")
@@ -237,6 +251,7 @@ struct JobRow: View {
     let job: EncodeJob
     @State private var hovering = false
     @State private var expanded = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -283,7 +298,7 @@ struct JobRow: View {
                             RowButton(symbol: "xmark", help: "Remove from queue") { store.remove(job) }
                         }
                     }
-                    .transition(.opacity)
+                    .transition(.iconSwap)
                 }
                 Image(systemName: "chevron.right")
                     .font(.system(size: 13, weight: .semibold))
@@ -292,7 +307,7 @@ struct JobRow: View {
             }
             .padding(.vertical, 14)
             .contentShape(Rectangle())
-            .onTapGesture { withAnimation(.snappy(duration: 0.25)) { expanded.toggle() } }
+            .onTapGesture { withAnimation(Motion.out(0.22)) { expanded.toggle() } }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(job.name)
             .accessibilityValue("\(verb.replacingOccurrences(of: "..", with: "")), \(detail)")
@@ -310,7 +325,7 @@ struct JobRow: View {
                 JobDetail(job: job)
                     .padding(.leading, 46)
                     .padding(.bottom, 14)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .transition(.reveal(reduceMotion: reduceMotion))
             }
         }
         .onHover { h in withAnimation(.easeOut(duration: 0.15)) { hovering = h } }
@@ -474,64 +489,115 @@ private struct DetailLine: View {
 struct StatusGlyph: View {
     let status: EncodeJob.Status
     let progress: Double
-    @State private var spin = false
     @State private var squash = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// Waiting states share one glyph, so Ready → Queued doesn't swap icons.
+    private enum Kind { case waiting, encoding, done, failed, cancelled }
+
+    private var kind: Kind {
+        switch status {
+        case .probing, .queued, .ready: .waiting
+        case .encoding: .encoding
+        case .done: .done
+        case .failed: .failed
+        case .cancelled: .cancelled
+        }
+    }
+
     var body: some View {
         ZStack {
-            switch status {
-            case .probing, .queued, .ready:
-                Circle()
-                    .strokeBorder(style: StrokeStyle(lineWidth: 2.5, lineCap: .round, dash: [3.5, 5]))
-                    .foregroundStyle(Theme.secondary)
-                    .rotationEffect(.degrees(spin ? 360 : 0))
-                    .animation(status == .ready || reduceMotion ? nil : .linear(duration: 5).repeatForever(autoreverses: false), value: spin)
-                WaitingDots(animating: status != .ready && !reduceMotion)
-            case .encoding:
-                Circle().stroke(Color.white.opacity(0.1), lineWidth: 3)
-                Circle()
-                    .trim(from: 0, to: max(0.02, progress))
-                    .stroke(Theme.yellow, style: StrokeStyle(lineWidth: 3, lineCap: .round))
-                    .rotationEffect(.degrees(-90))
-                    .animation(.easeOut(duration: 0.4), value: progress)
-                Circle()
-                    .fill(Theme.yellow)
-                    .frame(width: 8, height: 8)
-                    .scaleEffect(spin ? 1 : 0.6)
-                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.8).repeatForever(), value: spin)
-            case .done:
-                Circle()
-                    .strokeBorder(style: StrokeStyle(lineWidth: 2.5, lineCap: .round, dash: [3.5, 5]))
-                    .foregroundStyle(Theme.yellow)
-                Circle()
-                    .fill(Theme.yellow)
-                    .padding(6)
-                Image(systemName: "checkmark")
-                    .font(.system(size: 10, weight: .heavy))
-                    .foregroundStyle(.black)
-            case .failed:
-                Circle().fill(Theme.red.opacity(0.18))
-                Image(systemName: "exclamationmark")
-                    .font(.system(size: 13, weight: .heavy))
-                    .foregroundStyle(Theme.red)
-            case .cancelled:
-                Circle().fill(Theme.field)
-                RoundedRectangle(cornerRadius: 2).fill(Theme.secondary).frame(width: 9, height: 9)
-            }
+            glyph
+                .id(kind)
+                .transition(reduceMotion ? .opacity : .iconSwap)
         }
         .frame(width: 32, height: 32)
         .scaleEffect(x: squash ? 1.2 : 1, y: squash ? 0.76 : 1, anchor: .bottom)
-        .onAppear { spin = true }
         .onChange(of: status) { _, new in
             // The name made literal: a quick squash as the check lands, then a springy recovery.
             guard new == .done, !reduceMotion else { return }
-            withAnimation(.easeIn(duration: 0.09)) { squash = true }
+            withAnimation(Motion.out(0.09)) { squash = true }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.09) {
                 withAnimation(.spring(response: 0.42, dampingFraction: 0.42)) { squash = false }
             }
         }
         .accessibilityHidden(true)
+    }
+
+    @ViewBuilder
+    private var glyph: some View {
+        switch kind {
+        case .waiting:
+            ZStack {
+                WaitingRing(spinning: status != .ready && !reduceMotion)
+                WaitingDots(animating: status != .ready && !reduceMotion)
+            }
+        case .encoding:
+            ZStack {
+                Circle().stroke(Color.white.opacity(0.1), lineWidth: 3)
+                Circle()
+                    .trim(from: 0, to: max(0.02, progress))
+                    .stroke(Theme.yellow, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                    .animation(Motion.out(0.3), value: progress)
+                PulseDot(animating: !reduceMotion)
+            }
+        case .done:
+            ZStack {
+                Circle()
+                    .strokeBorder(style: StrokeStyle(lineWidth: 2.5, lineCap: .round, dash: [3.5, 5]))
+                    .foregroundStyle(Theme.yellow)
+                Circle().fill(Theme.yellow).padding(6)
+                Image(systemName: "checkmark")
+                    .font(.system(size: 10, weight: .heavy))
+                    .foregroundStyle(.black)
+            }
+        case .failed:
+            ZStack {
+                Circle().fill(Theme.red.opacity(0.18))
+                Image(systemName: "exclamationmark")
+                    .font(.system(size: 13, weight: .heavy))
+                    .foregroundStyle(Theme.red)
+            }
+        case .cancelled:
+            ZStack {
+                Circle().fill(Theme.field)
+                RoundedRectangle(cornerRadius: 2).fill(Theme.secondary).frame(width: 9, height: 9)
+            }
+        }
+    }
+}
+
+/// Dashed ring that turns slowly while a file waits, driven by the clock so it starts whenever
+/// the state does (not only when the row first appears).
+private struct WaitingRing: View {
+    var spinning: Bool
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1 / 30, paused: !spinning)) { context in
+            Circle()
+                .strokeBorder(style: StrokeStyle(lineWidth: 2.5, lineCap: .round, dash: [3.5, 5]))
+                .foregroundStyle(Theme.secondary)
+                .rotationEffect(.degrees(spinning ? context.date.timeIntervalSinceReferenceDate
+                    .truncatingRemainder(dividingBy: 5) / 5 * 360 : 0))
+        }
+    }
+}
+
+/// The breathing dot in the middle of the encoding ring.
+private struct PulseDot: View {
+    var animating: Bool
+    @State private var big = false
+
+    var body: some View {
+        Circle()
+            .fill(Theme.yellow)
+            .frame(width: 8, height: 8)
+            .scaleEffect(big ? 1 : 0.6)
+            .onAppear {
+                guard animating else { return }
+                withAnimation(.easeInOut(duration: 0.8).repeatForever()) { big = true }
+            }
     }
 }
 
@@ -580,9 +646,12 @@ private struct RowButton: View {
                 .foregroundStyle(Theme.secondary)
                 .frame(width: 24, height: 24)
                 .background(Circle().fill(Theme.field))
-                .contentShape(Circle())
+                // 30 × 40 pt hit area without changing layout; 3 pt sideways so neighbors (6 pt apart) never overlap.
+                .padding(.horizontal, 3).padding(.vertical, 8)
+                .contentShape(Rectangle())
+                .padding(.horizontal, -3).padding(.vertical, -8)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressableStyle())
         .help(help)
         .accessibilityLabel(help)
     }

@@ -67,7 +67,7 @@ struct SquishApp: App {
                 Button("Retry Failed") { store.retryFailed() }
                     .keyboardShortcut("r", modifiers: [.command, .shift])
                     .disabled(!store.jobs.contains { $0.status == .failed || $0.status == .cancelled })
-                Button("Clear Finished") { store.clearFinished() }
+                Button("Clear Finished") { store.clearFinished(animated: false) }
                     .keyboardShortcut("k")
                 Toggle("Play Sound When Done", isOn: Binding(get: { store.playSounds }, set: { store.playSounds = $0 }))
                 Divider()

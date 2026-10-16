@@ -70,6 +70,12 @@ struct CommandBuilderTests {
         #expect(p.passes[1].value(after: "-b:v") == "\(7600 - 128)k")
     }
 
+    @Test func sizeLimitNeverInflatesASmallFile() {
+        // 10 s at 8 Mbps total is ~10 MB; a 50 MB limit must not raise the bitrate above the source's.
+        let args = plan { $0.useHardwareEncoder = false; $0.rateControl = .targetSize; $0.targetSizeMB = 50; $0.audioBitrateKbps = 128 }.passes[1]
+        #expect(args.value(after: "-b:v") == "\(8000 - 128)k")
+    }
+
     @Test func portraitScalesTheShortEdge() {
         let args = plan({ $0.resolution = .p720 }, media: media(width: 1080, height: 1920)).passes[0]
         #expect(args.value(after: "-vf")?.contains("scale='min(iw,720)':-2") == true)
