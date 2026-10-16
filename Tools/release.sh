@@ -1,8 +1,13 @@
 #!/bin/zsh
-# Builds a signed, notarized Squish DMG ready to put on the internet.
+# Builds a Squish DMG ready to put on the internet.
 #
+#   SQUISH_SOURCE_URL=https://github.com/you/Squish Tools/release.sh --adhoc
+#       Free public release: ad-hoc signed, not notarized. People approve it once on first launch
+#       (README › Install). This is how Squish is released today.
 #   SQUISH_SOURCE_URL=https://github.com/you/Squish Tools/release.sh
-#   Tools/release.sh --local        ad-hoc signed, not notarized: for testing the packaging only
+#       Developer ID signed and notarized (needs the paid Apple Developer Program).
+#   Tools/release.sh --local
+#       Same as --adhoc but without a source link, for testing the packaging only.
 #
 # Before the first real release (see README › Releasing):
 #   1. Tools/build-ffmpeg.sh                    builds the bundled ffmpeg
@@ -16,8 +21,12 @@
 set -euo pipefail
 
 ROOT="${0:A:h:h}"
-LOCAL=false
-[[ "${1:-}" == "--local" ]] && LOCAL=true
+LOCAL=false   # ad-hoc signature, no notarization
+PUBLIC=true   # needs a source URL in the notices (GPL)
+case "${1:-}" in
+  --local) LOCAL=true; PUBLIC=false ;;
+  --adhoc) LOCAL=true ;;
+esac
 IDENTITY="${SIGN_IDENTITY:-Developer ID Application}"
 PROFILE="${NOTARY_PROFILE:-squish-notary}"
 SOURCE_URL="${SQUISH_SOURCE_URL:-}"
@@ -36,6 +45,8 @@ if ! $LOCAL; then
     || fail "No \"$IDENTITY\" certificate in your keychain. Create one in Xcode › Settings › Accounts › Manage Certificates."
   xcrun notarytool history --keychain-profile "$PROFILE" >/dev/null 2>&1 \
     || fail "No notarytool profile \"$PROFILE\". Run: xcrun notarytool store-credentials $PROFILE"
+fi
+if $PUBLIC; then
   [[ -n "$SOURCE_URL" ]] || fail "Set SQUISH_SOURCE_URL to where Squish's source is published. The GPL requires offering it."
 fi
 [[ -n "$SOURCE_URL" ]] || SOURCE_URL="(local test build: no public source URL set)"
@@ -102,7 +113,7 @@ hdiutil create -quiet -volname "Squish" -srcfolder "$STAGE" -ov -format UDZO "$D
 rm -rf "$STAGE"
 
 if $LOCAL; then
-  step "Local build done (ad-hoc signed, not notarized; other Macs will refuse to open it)"
+  step "Ad-hoc build done: not notarized, so each Mac approves it once on first launch (README › Install)"
 else
   codesign --force --timestamp --sign "$IDENTITY" "$DMG"
 

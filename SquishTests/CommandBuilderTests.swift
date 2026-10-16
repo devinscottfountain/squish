@@ -78,7 +78,23 @@ struct CommandBuilderTests {
 
     @Test func portraitScalesTheShortEdge() {
         let args = plan({ $0.resolution = .p720 }, media: media(width: 1080, height: 1920)).passes[0]
-        #expect(args.value(after: "-vf")?.contains("scale='min(iw,720)':-2") == true)
+        #expect(args.value(after: "-vf")?.contains("scale='trunc(min(iw,720)/2)*2':-2") == true)
+    }
+
+    @Test func resolutionCapKeepsOddSmallSourcesEven() {
+        // 641×361 under a 720p cap passes through the cap, so the height must still be rounded to even.
+        let vf = plan({ $0.resolution = .p720 }, media: media(width: 641, height: 361)).passes[0].value(after: "-vf") ?? ""
+        #expect(vf.contains("scale=-2:'trunc(min(ih,720)/2)*2'"))
+    }
+
+    @Test func errorsLeadWithTheCause() {
+        let log = """
+        [libx264 @ 0xa0] height not divisible by 2 (642x361)
+        [vf#0:0 @ 0xa1] Task finished with error code: -542398533 (Generic error in an external library)
+        [out#0/null @ 0xa2] Nothing was written into output file, because at least one of its streams received no packets.
+        """
+        let text = FFmpegError.exited(code: 187, message: log).errorDescription ?? ""
+        #expect(text.hasPrefix("Height not divisible by 2 (642x361)"))
     }
 
     @Test func oddSourceDimensionsAreEvened() {
@@ -308,6 +324,14 @@ struct EncodeIntegrationTests {
         let b = try await MediaProbe.probe(before, ffprobe: ffprobeURL!)
         #expect(a.width == b.width && a.height == b.height)
         #expect(a.hasAlpha && b.hasAlpha)
+    }
+
+    @Test func oddTransparentClipUnderTenMegabytes() async throws {
+        // The exact case that failed in a release build: 641×361 ProRes 4444 with alpha, "Under 10 MB" (720p cap, two-pass x264).
+        let out = try await encode(try await alphaClip(), ext: "mp4") {
+            $0.useHardwareEncoder = false; $0.rateControl = .targetSize; $0.targetSizeMB = 10; $0.resolution = .p720
+        }
+        #expect(out.width == 640 && out.height == 360)
     }
 
     @Test func kitchenSink() async throws {

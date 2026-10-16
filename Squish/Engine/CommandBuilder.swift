@@ -474,9 +474,10 @@ struct CommandBuilder {
             let quarterTurn = s.rotation == .cw90 || s.rotation == .ccw90
             let portrait = media.map { quarterTurn ? $0.width > $0.height : $0.height > $0.width } ?? false
             if portrait {
-                return s.allowUpscale ? "scale=\(target):-2:\(flags)" : "scale='min(iw,\(target))':-2:\(flags)"
+                // Rounded down to even: 4:2:0 encoders reject odd sizes, and a source smaller than the cap passes through.
+                return s.allowUpscale ? "scale=\(target):-2:\(flags)" : "scale='trunc(min(iw,\(target))/2)*2':-2:\(flags)"
             }
-            return s.allowUpscale ? "scale=-2:\(target):\(flags)" : "scale=-2:'min(ih,\(target))':\(flags)"
+            return s.allowUpscale ? "scale=-2:\(target):\(flags)" : "scale=-2:'trunc(min(ih,\(target))/2)*2':\(flags)"
         }
     }
 

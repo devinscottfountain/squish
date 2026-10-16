@@ -391,7 +391,8 @@ struct JobRow: View {
             }
             return text
         case .failed:
-            return job.message?.split(separator: "\n").last.map(String.init) ?? "Something went wrong"
+            // The first line is the cause (FFmpegError puts it there).
+            return job.message?.split(separator: "\n").first.map(String.init) ?? "Something went wrong"
         }
     }
 }

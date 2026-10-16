@@ -6,9 +6,25 @@ enum FFmpegError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case let .exited(code, message):
-            let lines = message.split(separator: "\n").suffix(6).joined(separator: "\n")
-            return lines.isEmpty ? "ffmpeg exited with code \(code)." : lines
+            let lines = message.split(separator: "\n")
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+            guard !lines.isEmpty else { return "ffmpeg exited with code \(code)." }
+            // ffmpeg's first real complaint is the cause; what follows is usually fallout like
+            // "Task finished…" or "Nothing was written…". Lead with the cause, then the tail for context.
+            let fallout = ["Task finished", "Terminating thread", "Nothing was written", "Error sending frames",
+                           "Could not open encoder", "Error while opening encoder", "Conversion failed"]
+            let cause = lines.first { line in !fallout.contains { line.contains($0) } } ?? lines[0]
+            let tail = lines.suffix(4).filter { $0 != cause }
+            return ([Self.readable(cause)] + tail).joined(separator: "\n")
         }
+    }
+
+    /// Drops ffmpeg's "[libx264 @ 0x…] " prefix so the cause reads as a sentence.
+    static func readable(_ line: String) -> String {
+        guard line.hasPrefix("["), let close = line.firstIndex(of: "]") else { return line }
+        let rest = line[line.index(after: close)...].trimmingCharacters(in: .whitespaces)
+        return rest.isEmpty ? line : rest.prefix(1).uppercased() + rest.dropFirst()
     }
 }
 

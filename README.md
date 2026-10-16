@@ -1,76 +1,59 @@
 # Squish
 
-A native macOS front end for ffmpeg. Compress, convert and handle transparent video. Simple mode gets out of your way, and Advanced mode exposes nearly every ffmpeg setting worth using.
+A native Mac app for compressing and converting video, built on ffmpeg. Pick a preset and go, or open Advanced mode for nearly every ffmpeg setting worth using. It handles transparent video, HDR from iPhones, and audio-only exports too.
 
-## Run it
+![Squish](docs/screenshot.png)
+
+## Download & install
+
+**Requires a Mac with Apple silicon (M1 or later) running macOS 15 or newer.** Everything Squish needs, including ffmpeg, is inside the app.
+
+1. Download **Squish-x.y.z.dmg** from the [latest release](https://github.com/devinscottfountain/squish/releases/latest).
+2. Open the DMG and drag **Squish** into **Applications**.
+3. Open Squish from Applications. The first time, macOS stops it (see below).
+
+### "Apple could not verify Squish…"
+
+Squish isn't signed with a paid Apple Developer ID, so macOS can't check it automatically and blocks the first launch. You only need to approve it once:
+
+1. Open Squish. When the warning appears, click **Done** (not Move to Trash).
+2. Open **System Settings › Privacy & Security** and scroll down to **Security**.
+3. Next to "Squish was blocked to protect your Mac", click **Open Anyway**.
+4. Click **Open Anyway** again in the dialog that appears, and enter your password or use Touch ID if asked. From now on Squish opens normally.
+
+**Prefer Terminal?** This does the same thing. It removes the "downloaded from the internet" flag so macOS stops asking:
 
 ```bash
-brew install ffmpeg xcodegen   # once
-xcodegen generate              # regenerate Squish.xcodeproj after adding files
-open Squish.xcodeproj          # ⌘R
+xattr -dr com.apple.quarantine /Applications/Squish.app
 ```
 
-Squish looks for ffmpeg/ffprobe in this order: a binary you picked with **Locate…**, the copy bundled inside the app (`Contents/Helpers`, release builds), then `/opt/homebrew/bin`, `/usr/local/bin`, `/opt/local/bin` and `/usr/bin`. It runs ffmpeg as a child process, so the App Sandbox is off.
+**Is this safe?** The warning means Apple hasn't reviewed the app, not that anything is wrong with it. Squish is open source: everything in the app is built from the code in this repository, including the script that builds its bundled ffmpeg (`Tools/build-ffmpeg.sh`). If you'd rather not trust a download, [build it yourself](#build-from-source).
 
-## Releasing
+**Updating:** download the new DMG and replace the app in Applications. You'll need to approve it again on first launch.
 
-Squish ships as a signed, notarized DMG with its own ffmpeg inside, so people don't need Homebrew.
+## What it does
 
-**One-time setup**
-1. **Join the Apple Developer Program** ($99/year), then create a **Developer ID Application** certificate in Xcode › Settings › Accounts › Manage Certificates.
-2. **Save notary credentials** in your keychain. This takes your Apple ID and an app-specific password from account.apple.com, plus your team ID:
-   ```bash
-   xcrun notarytool store-credentials squish-notary
-   ```
-3. **Build the bundled ffmpeg.** It's a static arm64 build with x264, x265 (8/10/12-bit), SVT-AV1, libvpx, Opus, LAME, libwebp and zimg. It takes several minutes and resumes if interrupted:
-   ```bash
-   brew install cmake pkgconf autoconf automake libtool
-   Tools/build-ffmpeg.sh
-   ```
-
-**Each release**
-1. Bump `MARKETING_VERSION` (and `CURRENT_PROJECT_VERSION`) in `project.yml`.
-2. Build, sign, notarize and package:
-   ```bash
-   SQUISH_SOURCE_URL=https://github.com/<you>/Squish Tools/release.sh
-   ```
-   This makes `dist/Squish-<version>.dmg`. Use `Tools/release.sh --local` for an ad-hoc signed test build that skips notarization (it only opens on your own Mac).
-3. Upload the DMG to a GitHub Release, along with the source. GitHub Releases are free and give you a stable download link.
-
-**Licensing.** The bundled ffmpeg is built with `--enable-gpl --enable-version3`, so Squish is distributed under the GNU GPL v3 (see `LICENSE`). Each release must make Squish's source available: that's what `SQUISH_SOURCE_URL` records in the app's notices. The app includes every library's license, plus a notices file listing exact source versions and checksums. You can open them from **About › Licenses**.
-
-## How it's built
-
-| Path | What it does |
-| --- | --- |
-| `Models/EncodeSettings.swift` | Every option as one `Codable` struct, plus enums, derived rules (alpha support, codec/container validity) |
-| `Models/QuickPreset.swift` | One-tap Simple-mode presets |
-| `Models/MediaInfo.swift` | `ffprobe` JSON → duration, size, fps, rotation-aware dimensions, alpha detection |
-| `Engine/CommandBuilder.swift` | Settings + media info → ffmpeg argument lists (1 or 2 passes), plus warnings. Pure, so it's testable |
-| `Engine/FFmpegProcess.swift` | Runs ffmpeg with `-progress pipe:1`, parses progress, supports cancel |
-| `Engine/FFmpegEnvironment.swift` | Locates binaries, reads version, lists available encoders |
-| `Store/QueueStore.swift` | Queue, jobs, persistence, output naming, the encode loop |
-| `Views/` | SwiftUI: dark cards, pill controls, dashed-ring status glyphs, floating toolbar |
-
-## What's in v0.1
-
-**Simple mode:** 8 presets (Smaller, Under 10 MB, Web ready, Modern/HEVC, ProRes 4444, Web alpha, GIF, Archive), format chips, quality slider *or* target file size, resolution, audio on/off, transparency, strip metadata.
+**Simple mode:** one-tap presets: Smaller, Under 10 MB, Web ready, Modern (HEVC), ProRes 4444, Web alpha, GIF, Audio only and Archive. You can also save your own. Below the presets: format, quality *or* a target file size, resolution, and switches for audio, transparency, metadata and HDR. **Fastest** uses the Mac's media engine and **Smallest** uses software encoders.
 
 **Advanced mode:**
-- **Format**: MP4, MOV, MKV, WebM, GIF, WebP, APNG, PNG frames; H.264, HEVC, AV1, VP9, ProRes, passthrough; VideoToolbox hardware encode and decode
-- **Video**: quality (CRF mapped per encoder), bitrate with max rate and buffer, two-pass, target file size, CBR; encoder speed, tune, H.264 profile, pixel format/bit depth, ProRes profile, keyframe interval, B-frames, fast start
-- **Frame**: resolution by short edge (portrait-aware, no upscaling unless allowed), custom size, scaler, frame rate with drop/blend/motion-interpolate, rotate, flip, crop, deinterlace, denoise, sharpen, brightness/contrast/saturation/gamma
-- **Time**: trim, 0.25×–4× speed (video and pitch-preserving audio), reverse, fade in/out
-- **Audio**: AAC/Opus/MP3/FLAC/PCM/passthrough, bitrate, sample rate, channels, gain, EBU R128 loudness normalize
-- **Transparency**: Auto / Keep / Flatten onto a color / Chroma key; ProRes 4444, VP9 alpha (decoded with libvpx so alpha survives), HEVC alpha via VideoToolbox, GIF/APNG/PNG alpha; HEVC alpha quality
-- **Metadata**: strip all, strip location, chapters, title/artist/comment/copyright
-- **Output**: next to source or a folder, suffix, overwrite or auto-number, threads, raw extra ffmpeg args
+- **Format:** MP4, MOV, MKV, WebM, GIF, WebP, APNG, PNG frames, or audio only (M4A/AAC, ALAC, MP3, WAV, FLAC). Video can be H.264, HEVC, AV1, VP9, ProRes or passthrough, with the media engine or software encoders.
+- **Video:** quality, bitrate, two-pass, target file size or CBR. Also encoder speed, tune, profile, bit depth, keyframes and B-frames.
+- **Frame:** resolution (portrait-aware), frame rate with drop, blend or motion interpolation, plus rotate, flip, crop, deinterlace, denoise, sharpen and color adjustments.
+- **Time:** trim, 0.25×–4× speed with pitch-preserving audio, reverse, fades.
+- **Audio:** codec, bitrate, sample rate, channels, gain, and loudness normalization.
+- **Transparency:** keep alpha (ProRes 4444, VP9, HEVC, GIF/APNG/PNG), flatten onto a color, or key out a green screen.
+- **HDR:** tone-map iPhone, HLG, HDR10 and Dolby Vision footage to SDR, or keep it as 10-bit HDR.
+- **Metadata and output:** strip or edit metadata, output folder, file naming, and raw extra ffmpeg arguments.
 
-Plus: drag-and-drop (files or folders), Dock/`open -a` support, live progress/speed/ETA, per-file savings, "Copy command", and a sheet showing the exact ffmpeg command.
+**Also:**
+- **Queue:** drag and drop files or folders. Reorder by dragging, pin settings to individual files, and retry or stop single files. The queue is remembered between launches.
+- **Before you encode:** a size estimate for each file (from a short sample encode), and a before/after split-screen preview.
+- **While it runs:** live progress, speed and time left, a Dock progress bar, and keep-awake so the Mac doesn't sleep mid-batch.
+- **Built in:** the exact ffmpeg command for any file, plus Settings (⌘,) and About with full license notices.
 
-## Performance (Apple silicon only)
+## Performance
 
-Squish is Swift and SwiftUI, built for arm64 only. ffmpeg does the encoding, so speed depends on the encoder it uses. These were measured on an M4 Pro (10 performance and 4 efficiency cores) with 1080p30 footage.
+Squish is Swift and SwiftUI, built for Apple silicon only. These numbers were measured on an M4 Pro with 1080p30 footage:
 
 | Encoder | Speed (× realtime) | Notes |
 |---|---|---|
@@ -83,54 +66,82 @@ Squish is Swift and SwiftUI, built for arm64 only. ffmpeg does the encoding, so 
 | ProRes 422 HQ, prores_ks | 4.5× | Still used for 4444 and transparency |
 
 What this means for the defaults:
-- **Encoder:** Simple mode's Encoder switch defaults to Fastest, the media engine. "Under 10 MB" and "Archive" stay in software, which hits exact sizes and makes the smallest files.
-- **Files at once:** defaults to 1. Two x264 encodes side by side took as long as running them one after another, because each already uses every core.
-- **Hardware decoding:** left off. It made no difference when encoding with x264.
-- **Untagged video:** gets BT.709 (HD) or BT.601 (SD) color tags before the media engine sees it. Untagged sources otherwise came out color-shifted from ProRes.
-- **Rosetta check:** Squish warns if your ffmpeg is an Intel build, which would run under Rosetta several times slower. Install the Apple silicon build with Homebrew in `/opt/homebrew`.
+- **Encoder:** Simple mode defaults to Fastest, the media engine. "Under 10 MB" and "Archive" use software, which hits exact sizes and makes the smallest files.
+- **Files at once:** one at a time by default. Each encode already uses every core, so running two side by side wasn't faster.
+- **Untagged video:** gets BT.709 (HD) or BT.601 (SD) color tags before it reaches the media engine, which otherwise shifted colors.
+- **Size limits are a ceiling:** a file that's already under the limit isn't inflated to fill it.
+
+## Build from source
+
+```bash
+brew install xcodegen ffmpeg   # ffmpeg is only needed for development builds
+xcodegen generate
+open Squish.xcodeproj          # ⌘R to run, ⌘U for the tests
+```
+
+Development builds use your Homebrew ffmpeg. Squish looks for ffmpeg in this order:
+1. A binary you picked in Settings › ffmpeg.
+2. The copy bundled in the app (release builds).
+3. `/opt/homebrew/bin`, `/usr/local/bin`, `/opt/local/bin`, then `/usr/bin`.
+
+It runs ffmpeg as a separate process, so the App Sandbox is off.
+
+The tests (`SquishTests`, Swift Testing) cover the command builder and also run real encodes with your ffmpeg.
+
+## Releasing
+
+Releases are a DMG with a standalone ffmpeg inside, so nobody needs Homebrew.
+
+**One-time:** build the bundled ffmpeg. It's a static arm64 build with x264, x265 (8/10/12-bit), SVT-AV1, libvpx, Opus, LAME, libwebp and zimg. It takes a while, and resumes if interrupted:
+
+```bash
+brew install cmake pkgconf autoconf automake libtool
+Tools/build-ffmpeg.sh
+```
+
+**Each release:**
+1. Bump `MARKETING_VERSION` (and `CURRENT_PROJECT_VERSION`) in `project.yml`, and commit.
+2. Build and package:
+   ```bash
+   SQUISH_SOURCE_URL=https://github.com/devinscottfountain/squish Tools/release.sh --adhoc
+   ```
+   This makes `dist/Squish-<version>.dmg`, ad-hoc signed and not notarized. That's free, and people approve it once on first launch (see [Download & install](#download--install)).
+3. Tag the commit, then upload the DMG to a GitHub Release:
+   ```bash
+   gh release create v<version> dist/Squish-<version>.dmg --title "Squish <version>" --notes "…"
+   ```
+
+**Optional: Developer ID signing.** With a paid Apple Developer Program membership, drop `--adhoc` and Squish is signed and notarized, so it opens without any warning. This needs a "Developer ID Application" certificate in your keychain and `xcrun notarytool store-credentials squish-notary` (see the comments at the top of `Tools/release.sh`).
+
+## How it's built
+
+| Path | What it does |
+| --- | --- |
+| `Squish/Models/EncodeSettings.swift` | Every option as one `Codable` struct, plus the rules for which codecs, containers and alpha go together |
+| `Squish/Models/MediaInfo.swift` | `ffprobe` JSON → duration, size, fps, rotation-aware dimensions, alpha and HDR detection |
+| `Squish/Engine/CommandBuilder.swift` | Settings + media info → ffmpeg arguments (one or two passes) and warnings. Pure, so it's easy to test |
+| `Squish/Engine/FFmpegProcess.swift` | Runs ffmpeg with `-progress pipe:1`, parses progress, supports cancel, stops everything on quit |
+| `Squish/Engine/FFmpegEnvironment.swift` | Finds ffmpeg, reads its version, and lists which encoders and filters it has |
+| `Squish/Engine/SampleEncoder.swift` | Short sample encodes for size estimates and the before/after preview |
+| `Squish/Store/` | The queue, encode loop, persistence, keep-awake and quit cleanup |
+| `Squish/Views/` | SwiftUI: glass cards, pill controls, status glyphs, floating toolbar, Settings and About |
+| `Tools/` | `build-ffmpeg.sh`, `release.sh`, the icon renderer and the finish-sound synthesizer |
 
 ## Small delights
 
-Kept quiet on purpose. Each one fires on a real event and respects Reduce Motion and the Mac's UI sound setting.
+Kept quiet on purpose. Each one fires on a real event and respects Reduce Motion and the Mac's sound settings.
 
-- **Finish sound:** a 0.5 s stereo "squish-pop-chime", played once per batch. It's built in `Tools/render_sound.py` from seven layers: a low thump, a detuned squish tone, a squelch of filtered noise, a transient click, a bubble pop, a soft bell fifth and a short room. To change it, tweak the per-layer gains in `render()` and re-run the script. You can turn the sound off in Output › Sound when done or Queue › Play Sound When Done.
-- **Row squish:** the status ring squashes and springs back as a file's check lands.
+- **Finish sound:** a short layered "squish-pop-chime", played once per batch (`Tools/render_sound.py`). You can turn it off in Settings.
+- **Row squish:** the status ring squashes and springs back as a file finishes.
 - **Count-up:** saved bytes and percentages roll up in the stats pill.
-- **Dock:** a progress bar on the icon during a batch, and one bounce at the end only if Squish is in the background.
+- **Dock:** a progress bar during a batch, and one bounce when it finishes if Squish is in the background.
 - **Lifetime savings:** hover the stats pill.
 - **Haptics:** a tick when the preview divider snaps to center, and a soft thud when files are dropped.
-- **"All squished.":** shown briefly in the empty state after clearing a finished batch.
-- **Big-win shimmer:** one pass of light across the result line, only for files that shrank 90% or more.
+- **"All squished.":** shown briefly after you clear a finished batch.
+- **Big-win shimmer:** for files that shrank by 90% or more.
 
-## Ideas for next
+## License
 
-**Workflow**
-- Save custom presets; import/export them as JSON
-- Per-file settings overrides (right now one settings snapshot applies to the whole queue)
-- Run 2–4 jobs in parallel; pause/resume
-- Watch folders: auto-squish anything dropped into a folder
-- Menu bar extra and Finder Quick Action / Share extension
-- Notifications and a Dock progress bar
+Squish is free software under the [GNU General Public License v3](LICENSE). Release builds bundle ffmpeg and its libraries, built with `--enable-gpl --enable-version3`. Their licenses, exact source versions and checksums ship inside the app under **About › Licenses**.
 
-**Seeing results**
-- Before/after split-view preview (AVPlayer) with a scrubber
-- Fast 5-second preview encode to judge settings
-- Size estimate before encoding (sample-encode a few seconds)
-- VMAF/SSIM quality score after encoding
-
-**More encoding**
-- HDR → SDR tone mapping (`zscale` + `tonemap`) and HDR passthrough metadata
-- Audio track and subtitle selection, burn-in subtitles
-- Watermark/overlay image, text overlays, letterbox/pad to aspect ratio
-- Visual crop tool on a frame grab
-- Thumbnail, contact sheet and poster-frame export
-- Concatenate clips; split by size or duration
-- Stabilization (`vidstab`), auto-crop black bars (`cropdetect`)
-- Lossless trim (keyframe-aligned stream copy)
-- Bundle a static ffmpeg in the app so users don't need Homebrew
-
-## Notes
-
-- Target size uses 1 MB = 1,000,000 bytes with 5% headroom, matching how upload limits are usually stated.
-- Two-pass applies to libx264, libvpx-vp9 and libaom-av1. libx265, SVT-AV1 and VideoToolbox run single-pass.
-- This Homebrew ffmpeg build has no `libwebp`, so WebP output warns until you install a build that has it.
+© 2026 Devin Fountain
