@@ -152,7 +152,16 @@ struct StartButton: View {
             .padding(.trailing, 20)
             .frame(height: 50)
             .contentShape(Capsule())
-            .glass(in: Capsule(), tint: running ? nil : Theme.orange.opacity(0.85), interactive: true)
+            // The main action is solid orange in both modes (a glass tint washes out in light mode);
+            // while running it becomes plain glass so Stop reads as secondary.
+            .background {
+                if !running {
+                    Capsule().fill(LinearGradient(colors: [Theme.orange.opacity(0.92), Theme.orange],
+                                                  startPoint: .top, endPoint: .bottom))
+                }
+            }
+            .overlay { if !running { Capsule().strokeBorder(Theme.glassEdge, lineWidth: 1) } }
+            .modifier(GlassWhenRunning(running: running))
             .brightness(hovering && enabled ? 0.05 : 0)
             .shadow(color: (running ? Color.black : Theme.orange).opacity(0.35), radius: 16, y: 8)
             .animation(Motion.icon, value: running)
@@ -205,7 +214,7 @@ struct CommandSheet: View {
                     .padding(14)
             }
             .frame(minHeight: 140, maxHeight: 260)
-            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.black.opacity(0.35)))
+            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Theme.well))
             .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.stroke))
 
             if job == nil {
@@ -230,7 +239,7 @@ struct CommandSheet: View {
         .padding(22)
         .frame(width: 640)
         .presentationBackground(.thinMaterial)
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(store.appearance.colorScheme)
     }
 }
 
@@ -285,4 +294,17 @@ private struct BlurFade: ViewModifier {
 extension AnyTransition {
     /// Crossfade with a slight blur, so a label change reads as one thing morphing.
     static let blurFade = AnyTransition.modifier(active: BlurFade(amount: 4), identity: BlurFade(amount: 0))
+}
+
+/// Plain glass behind the Start button only while it shows Stop.
+private struct GlassWhenRunning: ViewModifier {
+    var running: Bool
+
+    func body(content: Content) -> some View {
+        if running {
+            content.glass(in: Capsule(), interactive: true)
+        } else {
+            content
+        }
+    }
 }

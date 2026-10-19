@@ -2,33 +2,69 @@ import AppKit
 import SwiftUI
 
 enum Theme {
-    // Translucent so the glass underneath shows through.
-    static let raised = Color.white.opacity(0.07)
-    static let field = Color.white.opacity(0.07)
-    static let knob = Color.white.opacity(0.17)
-    static let stroke = Color.white.opacity(0.09)
-    static let divider = Color.white.opacity(0.07)
+    // Every token has a light and a dark value, resolved by the system appearance.
+    // Surfaces are translucent so the glass underneath shows through in both modes.
+    static let raised = Color.adaptive(light: .white.withAlphaComponent(0.85), dark: .white.withAlphaComponent(0.07))
+    static let field = Color.adaptive(light: .black.withAlphaComponent(0.05), dark: .white.withAlphaComponent(0.07))
+    static let knob = Color.adaptive(light: .white, dark: .white.withAlphaComponent(0.17))
+    static let stroke = Color.adaptive(light: .black.withAlphaComponent(0.08), dark: .white.withAlphaComponent(0.09))
+    static let divider = Color.adaptive(light: .black.withAlphaComponent(0.07), dark: .white.withAlphaComponent(0.07))
+    /// Fill for nested groups (Advanced sections).
+    static let sectionFill = Color.adaptive(light: .white.withAlphaComponent(0.55), dark: .white.withAlphaComponent(0.045))
+    /// Faint structural lines such as the drop zone's dashes.
+    static let faint = Color.adaptive(light: .black.withAlphaComponent(0.14), dark: .white.withAlphaComponent(0.12))
+    /// The unfilled part of the progress ring.
+    static let track = Color.adaptive(light: .black.withAlphaComponent(0.08), dark: .white.withAlphaComponent(0.1))
+    /// Solid surface for a row lifted while dragging.
+    static let lifted = Color.adaptive(light: .white, dark: NSColor(srgbRed: 0.169, green: 0.169, blue: 0.184, alpha: 1))
+    /// Recessed wells like the ffmpeg command block.
+    static let well = Color.adaptive(light: .black.withAlphaComponent(0.05), dark: .black.withAlphaComponent(0.35))
+    /// Over the frosted window, so glass panels separate from any wallpaper.
+    static let windowTint = Color.adaptive(light: .white.withAlphaComponent(0.2), dark: .black.withAlphaComponent(0.28))
+    /// Neutral hairline on images: pure black in light mode, pure white in dark, never tinted.
+    static let imageOutline = Color.adaptive(light: .black.withAlphaComponent(0.1), dark: .white.withAlphaComponent(0.1))
+
     /// Top-lit edge that sells the glass.
     static let glassEdge = LinearGradient(
-        colors: [Color.white.opacity(0.22), Color.white.opacity(0.04), Color.white.opacity(0.08)],
+        colors: [
+            .adaptive(light: .white.withAlphaComponent(0.9), dark: .white.withAlphaComponent(0.22)),
+            .adaptive(light: .black.withAlphaComponent(0.03), dark: .white.withAlphaComponent(0.04)),
+            .adaptive(light: .black.withAlphaComponent(0.08), dark: .white.withAlphaComponent(0.08)),
+        ],
         startPoint: .top, endPoint: .bottom
     )
 
-    static let text = Color.white.opacity(0.94)
-    static let secondary = Color.white.opacity(0.55)
-    static let tertiary = Color.white.opacity(0.32)
+    static let text = Color.adaptive(light: .black.withAlphaComponent(0.86), dark: .white.withAlphaComponent(0.94))
+    static let secondary = Color.adaptive(light: .black.withAlphaComponent(0.55), dark: .white.withAlphaComponent(0.55))
+    static let tertiary = Color.adaptive(light: .black.withAlphaComponent(0.36), dark: .white.withAlphaComponent(0.32))
+    /// Text on a `text`-colored fill (selected chips).
+    static let onText = Color.adaptive(light: .white, dark: .black)
 
-    static let orange = Color(hex: "#F2542D")
-    static let yellow = Color(hex: "#F5A524")
-    static let lilac = Color(hex: "#8E88E8")
-    static let green = Color(hex: "#3CCB6E")
-    static let red = Color(hex: "#F26B6B")
-    static let indigo = Color(hex: "#6C72E8")
-    static let teal = Color(hex: "#3BC7C0")
-    static let pink = Color(hex: "#E86BB7")
+    // Accents are a step deeper in light mode so they keep their contrast on pale glass.
+    static let orange = Color.adaptive(light: "#E2451E", dark: "#F2542D")
+    static let yellow = Color.adaptive(light: "#D98A00", dark: "#F5A524")
+    static let lilac = Color.adaptive(light: "#6A62D6", dark: "#8E88E8")
+    static let green = Color.adaptive(light: "#1E9E50", dark: "#3CCB6E")
+    static let red = Color.adaptive(light: "#D63B3B", dark: "#F26B6B")
+    static let indigo = Color.adaptive(light: "#4E54D4", dark: "#6C72E8")
+    static let teal = Color.adaptive(light: "#14968F", dark: "#3BC7C0")
+    static let pink = Color.adaptive(light: "#C9469A", dark: "#E86BB7")
 
     static let cardRadius: CGFloat = 22
     static let mono = Font.system(size: 11.5, design: .monospaced)
+}
+
+extension Color {
+    /// A color that follows the light or dark appearance of whatever it's drawn in.
+    static func adaptive(light: NSColor, dark: NSColor) -> Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light
+        })
+    }
+
+    static func adaptive(light: String, dark: String) -> Color {
+        adaptive(light: NSColor(Color(hex: light)), dark: NSColor(Color(hex: dark)))
+    }
 }
 
 extension Color {

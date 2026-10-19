@@ -66,9 +66,26 @@ struct SettingsSummary: View {
                     .truncationMode(.tail)
             }
             Spacer(minLength: 0)
+            let target = store.previewTarget
+            Button {
+                store.previewJob = target
+            } label: {
+                Label("Preview", systemImage: "eye")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Theme.text)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 4)
+                    .background(Capsule().fill(Theme.field))
+                    .contentShape(Capsule())
+            }
+            .buttonStyle(PressableStyle())
+            .disabled(target == nil || store.isRunning)
+            .opacity(target == nil || store.isRunning ? 0.4 : 1)
+            .help(target.map { "Before and after for \($0.name) with these settings (Space)" } ?? "Add a video to preview it")
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 11)
+        .padding(.leading, 16)
+        .padding(.trailing, 10)
+        .padding(.vertical, 8)
     }
 }
 
@@ -176,6 +193,25 @@ struct SimpleSettingsView: View {
                         } else {
                             SliderRow(title: "Quality", value: $store.settings.quality, range: 0...100,
                                       leading: "Smaller file", trailing: "Sharper") { qualityWord($0) }
+                        }
+                    }
+                }
+
+                if let target = store.previewTarget, !s.container.isAudioOnly {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(spacing: 8) {
+                            SectionLabel("Preview")
+                            Spacer(minLength: 8)
+                            Text(target.name)
+                                .font(.system(size: 10.5))
+                                .foregroundStyle(Theme.tertiary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                        LiveThumbnail(job: target)
+                        if target.customSettings != nil {
+                            Note(text: "This file has its own pinned settings, so the preview shows those.",
+                                 tint: Theme.lilac, symbol: "pin.fill")
                         }
                     }
                 }
@@ -371,7 +407,7 @@ struct MiniChipStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(selected ? Color.black : Theme.secondary)
+            .foregroundStyle(selected ? Theme.onText : Theme.secondary)
             .padding(.horizontal, 9)
             .padding(.vertical, 4)
             .background(Capsule().fill(selected ? Theme.text : Theme.field))
@@ -809,5 +845,107 @@ struct AdvancedSettingsView: View {
                 .buttonStyle(MiniChipStyle(selected: false))
             }
         }
+    }
+}
+
+// MARK: - Live thumbnail
+
+/// A small before/after of the previewed file that keeps up with the settings. Hover to slide the
+/// divider, click for the full preview.
+struct LiveThumbnail: View {
+    @Environment(QueueStore.self) private var store
+    let job: EncodeJob
+    @State private var split: CGFloat = 0.5
+
+    var body: some View {
+        let current = store.thumbnailIsCurrent(for: job)
+        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+        Button {
+            store.previewJob = job
+        } label: {
+            ZStack {
+                if let thumb = job.thumbnail {
+                    GeometryReader { geo in
+                        let width = geo.size.width
+                        ZStack(alignment: .leading) {
+                            frame(thumb.after, size: geo.size)
+                            frame(thumb.before, size: geo.size)
+                                .mask(alignment: .leading) { Rectangle().frame(width: width * split) }
+                            Rectangle()
+                                .fill(.white)
+                                .frame(width: 1.5)
+                                .shadow(color: .black.opacity(0.5), radius: 2)
+                                .offset(x: width * split - 0.75)
+                        }
+                        .onContinuousHover { phase in
+                            switch phase {
+                            case .active(let point):
+                                split = min(max(point.x / max(width, 1), 0), 1)
+                            case .ended:
+                                withAnimation(Motion.out(0.3)) { split = 0.5 }
+                            }
+                        }
+                    }
+                    // Old frames stay up, softened, while new ones are made.
+                    .blur(radius: current ? 0 : 3)
+                    .animation(Motion.out(0.2), value: current)
+                } else {
+                    Theme.field
+                }
+            }
+            .frame(height: 180)
+            .clipShape(shape)
+            .overlay(shape.strokeBorder(Theme.imageOutline, lineWidth: 1))
+            .overlay(alignment: .topLeading) { tag("Original").padding(8) }
+            .overlay(alignment: .topTrailing) { tag("Squished").padding(8) }
+            .overlay(alignment: .bottomLeading) {
+                if !current || job.isMakingThumbnail {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.mini)
+                        Text(job.thumbnail == nil ? "Making a preview…" : "Updating…")
+                    }
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Capsule().fill(.black.opacity(0.55)))
+                    .padding(8)
+                    .transition(.opacity)
+                }
+            }
+            .overlay(alignment: .bottomTrailing) {
+                Image(systemName: "arrow.up.left.and.arrow.down.right")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 24, height: 24)
+                    .background(Circle().fill(.black.opacity(0.55)))
+                    .padding(8)
+            }
+            .contentShape(shape)
+        }
+        .buttonStyle(PressableStyle())
+        .disabled(store.isRunning)
+        .task(id: "\(job.id)-\(current)") {
+            if !current { store.scheduleThumbnail() }
+        }
+        .accessibilityLabel("Preview of \(job.name): original on the left, squished on the right")
+        .accessibilityHint("Opens the full before and after preview")
+    }
+
+    private func frame(_ image: NSImage, size: CGSize) -> some View {
+        Image(nsImage: image)
+            .resizable()
+            .scaledToFill()
+            .frame(width: size.width, height: size.height)
+            .clipped()
+    }
+
+    private func tag(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(Capsule().fill(.black.opacity(0.55)))
     }
 }

@@ -84,7 +84,7 @@ struct SquishApp: App {
                 .padding(.top, 28)
                 .padding(.bottom, 24)
                 .frame(width: 380)
-                .preferredColorScheme(.dark)
+                .preferredColorScheme(store.appearance.colorScheme)
                 .containerBackground(.ultraThinMaterial, for: .window)
         }
         .windowStyle(.hiddenTitleBar)

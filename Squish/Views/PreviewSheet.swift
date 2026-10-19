@@ -41,7 +41,7 @@ struct PreviewSheet: View {
         .padding(22)
         .frame(width: 940, height: 680)
         .presentationBackground(.thinMaterial)
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(store.appearance.colorScheme)
         .task {
             if let media = job.media {
                 let kept = SampleEncoder.keptRange(settings, media: media)
@@ -162,7 +162,7 @@ struct PreviewSheet: View {
             .interpolation(zoom == .actual ? .none : .high)
             .frame(width: size.width, height: size.height)
             // Neutral inset hairline (pure white at 10% on this dark UI) for consistent depth.
-            .overlay(Rectangle().strokeBorder(Color.white.opacity(0.1), lineWidth: 1))
+            .overlay(Rectangle().strokeBorder(Theme.imageOutline, lineWidth: 1))
     }
 
     private func divider(height: CGFloat) -> some View {

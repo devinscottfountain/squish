@@ -47,9 +47,10 @@ xattr -dr com.apple.quarantine /Applications/Squish.app
 
 **Also:**
 - **Queue:** drag and drop files or folders. Reorder by dragging, pin settings to individual files, and retry or stop single files. The queue is remembered between launches.
-- **Before you encode:** a size estimate for each file (from a short sample encode), and a before/after split-screen preview.
+- **Before you encode:** a size estimate for each file (from a short sample encode). Simple mode also has a live before/after thumbnail that follows your settings. Click it, the Preview button, or press **Space** on a selected file for the full split-screen preview.
 - **While it runs:** live progress, speed and time left, a Dock progress bar, and keep-awake so the Mac doesn't sleep mid-batch.
 - **Built in:** the exact ffmpeg command for any file, plus Settings (⌘,) and About with full license notices.
+- **Light and dark:** follows your Mac's appearance, or pick one in Settings.
 
 ## Performance
 

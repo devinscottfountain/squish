@@ -3,6 +3,7 @@ import SwiftUI
 
 /// Squish › Settings… (⌘,): app-wide preferences, ffmpeg, and credits.
 struct SettingsWindow: View {
+    @Environment(QueueStore.self) private var store
     private enum Tab: Hashable { case general, ffmpeg, about }
     @State private var tab: Tab = .general
 
@@ -21,7 +22,7 @@ struct SettingsWindow: View {
         }
         .frame(width: 500)
         .tint(Theme.orange)
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(store.appearance.colorScheme)
     }
 }
 
@@ -34,6 +35,15 @@ private struct GeneralSettings: View {
     var body: some View {
         @Bindable var store = store
         Form {
+            Section {
+                Picker("Appearance", selection: $store.appearance) {
+                    ForEach(Appearance.allCases) { Text($0.label).tag($0) }
+                }
+                .pickerStyle(.segmented)
+            } header: {
+                Text("Look")
+            }
+
             Section {
                 Toggle("Play the finish sound", isOn: $store.playSounds)
                 HStack {

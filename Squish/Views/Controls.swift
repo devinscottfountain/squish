@@ -293,7 +293,7 @@ struct ChipRow<T: Hashable>: View {
                 } label: {
                     Text(label(option))
                         .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(selected ? Color.black : Theme.text)
+                        .foregroundStyle(selected ? Theme.onText : Theme.text)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
                         .frame(maxWidth: .infinity)
@@ -373,7 +373,7 @@ struct SettingsSection<Content: View>: View {
             }
         }
         .padding(.horizontal, 12)
-        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.white.opacity(0.045)))
+        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Theme.sectionFill))
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Theme.glassEdge.opacity(0.6), lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }

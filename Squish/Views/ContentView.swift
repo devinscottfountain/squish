@@ -1,15 +1,17 @@
+import AppKit
 import SwiftUI
 
 struct ContentView: View {
     @Environment(QueueStore.self) private var store
     @State private var showCommand = false
     @State private var dropTargeted = false
+    @State private var spaceMonitor: Any?
 
     var body: some View {
         @Bindable var store = store
         ZStack(alignment: .bottom) {
-            // A light dark tint over the frosted window so glass panels read against any wallpaper.
-            Color.black.opacity(0.28).ignoresSafeArea()
+            // A light tint over the frosted window so glass panels read against any wallpaper.
+            Theme.windowTint.ignoresSafeArea()
 
             HStack(alignment: .top, spacing: 14) {
                 QueueCard()
@@ -59,7 +61,29 @@ struct ContentView: View {
             await store.environment.refresh()
             store.reprobeAll()
         }
-        .preferredColorScheme(.dark)
+        .onAppear { installSpaceToPreview() }
+        .onDisappear { spaceMonitor.map(NSEvent.removeMonitor) }
+        .preferredColorScheme(store.appearance.colorScheme)
         .containerBackground(.ultraThinMaterial, for: .window)
     }
+
+    /// Space opens the before/after preview for the selected file and closes it again, like Quick Look.
+    /// Ignored while typing in a field or while another window (Settings, About) is in front.
+    private func installSpaceToPreview() {
+        guard spaceMonitor == nil else { return }
+        spaceMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard event.keyCode == 49,
+                  event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting(.capsLock).isEmpty,
+                  !(NSApp.keyWindow?.firstResponder is NSText) else { return event }
+            if store.previewJob != nil {
+                store.previewJob = nil
+                return nil
+            }
+            guard NSApp.keyWindow === NSApp.mainWindow, !store.isRunning,
+                  let target = store.previewTarget else { return event }
+            store.previewJob = target
+            return nil
+        }
+    }
+
 }

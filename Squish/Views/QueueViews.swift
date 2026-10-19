@@ -63,7 +63,7 @@ struct QueueCard: View {
                                         if isDragged {
                                             // Solid, so the lifted row doesn't show the one beneath it.
                                             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                                .fill(Color(hex: "#2B2B2F"))
+                                                .fill(Theme.lifted)
                                                 .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.glassEdge, lineWidth: 1))
                                                 .shadow(color: .black.opacity(0.35), radius: 14, y: 8)
                                                 .padding(.horizontal, -10)
@@ -231,7 +231,7 @@ struct DropZone: View {
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [6, 6]))
-                .foregroundStyle(hovering ? Theme.secondary : Color.white.opacity(0.12))
+                .foregroundStyle(hovering ? Theme.secondary : Theme.faint)
         )
         .contentShape(Rectangle())
         .onHover { h in withAnimation(Motion.hover) { hovering = h } }
@@ -307,13 +307,21 @@ struct JobRow: View {
             }
             .padding(.vertical, 14)
             .contentShape(Rectangle())
-            .onTapGesture { withAnimation(Motion.out(0.22)) { expanded.toggle() } }
+            .onTapGesture {
+                store.selectedJobID = job.id
+                store.scheduleThumbnail()
+                withAnimation(Motion.out(0.22)) { expanded.toggle() }
+            }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(job.name)
             .accessibilityValue("\(verb.replacingOccurrences(of: "..", with: "")), \(detail)")
             .accessibilityAddTraits(.isButton)
             .accessibilityHint(expanded ? "Hides details" : "Shows details")
-            .accessibilityAction { withAnimation { expanded.toggle() } }
+            .accessibilityAction {
+                store.selectedJobID = job.id
+                store.scheduleThumbnail()
+                withAnimation { expanded.toggle() }
+            }
             .accessibilityAction(named: "Remove from queue") { store.remove(job) }
             .accessibilityAction(named: "Try again") { store.retry(job) }
             .accessibilityAction(named: "Stop this file") { store.cancel(job) }
@@ -326,6 +334,14 @@ struct JobRow: View {
                     .padding(.leading, 46)
                     .padding(.bottom, 14)
                     .transition(.reveal(reduceMotion: reduceMotion))
+            }
+        }
+        .background {
+            // Selection: what the live thumbnail and Space-to-preview follow.
+            if store.selectedJobID == job.id && store.jobs.count > 1 {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Theme.field)
+                    .padding(.horizontal, -8)
             }
         }
         .onHover { h in withAnimation(.easeOut(duration: 0.15)) { hovering = h } }
@@ -535,7 +551,7 @@ struct StatusGlyph: View {
             }
         case .encoding:
             ZStack {
-                Circle().stroke(Color.white.opacity(0.1), lineWidth: 3)
+                Circle().stroke(Theme.track, lineWidth: 3)
                 Circle()
                     .trim(from: 0, to: max(0.02, progress))
                     .stroke(Theme.yellow, style: StrokeStyle(lineWidth: 3, lineCap: .round))

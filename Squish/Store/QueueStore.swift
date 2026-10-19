@@ -30,6 +30,9 @@ final class EncodeJob: Identifiable {
     var isEstimating = false
     /// The big-win shimmer plays once per result, not on every redraw.
     var hasCelebrated = false
+    /// Before/after frames for the live thumbnail, with the settings they were made with.
+    var thumbnail: PreviewThumbnail?
+    var isMakingThumbnail = false
     /// Settings pinned to this file. When nil it follows the shared settings panel.
     var customSettings: EncodeSettings?
     /// The settings this file was queued with, fixed for the length of its run.
@@ -64,9 +67,13 @@ final class QueueStore {
     var isNamingPreset = false
     /// The job shown in the before/after sheet.
     var previewJob: EncodeJob?
+    /// The row the user last clicked: the live thumbnail and Space-to-preview follow it.
+    var selectedJobID: UUID?
     /// Finish sound on/off (it also follows the system's UI sound setting).
     let persistsState: Bool
     var playSounds: Bool { didSet { if persistsState { UserDefaults.standard.set(playSounds, forKey: Self.soundKey) } } }
+    /// Light, dark, or follow the system.
+    var appearance: Appearance { didSet { if persistsState { UserDefaults.standard.set(appearance.rawValue, forKey: Self.appearanceKey) } } }
     /// How many files encode at the same time.
     var concurrentJobs: Int { didSet { if persistsState { UserDefaults.standard.set(concurrentJobs, forKey: Self.concurrencyKey) } } }
     /// Bytes saved across every file Squish has ever finished.
@@ -83,6 +90,9 @@ final class QueueStore {
     @ObservationIgnored private var reservedOutputs: Set<String> = []
     @ObservationIgnored private var runTask: Task<Void, Never>?
     @ObservationIgnored private var estimateTask: Task<Void, Never>?
+    @ObservationIgnored private var estimatesInFlight = false
+    @ObservationIgnored private var thumbnailTask: Task<Void, Never>?
+    @ObservationIgnored private var thumbnailProcess: FFmpegProcess?
     @ObservationIgnored private var batch: [EncodeJob] = []
     @ObservationIgnored private var allSquishedTask: Task<Void, Never>?
     @ObservationIgnored private var estimateProcess: FFmpegProcess?
@@ -96,6 +106,7 @@ final class QueueStore {
     private static let savedPresetsKey = "savedPresets.v1"
     private static let soundKey = "playSounds"
     private static let concurrencyKey = "concurrentJobs"
+    private static let appearanceKey = "appearance"
     private static let lifetimeBytesKey = "lifetimeSavedBytes"
     private static let lifetimeFilesKey = "lifetimeFiles"
 
@@ -122,6 +133,7 @@ final class QueueStore {
             savedPresets = presets
         }
         playSounds = defaults?.object(forKey: Self.soundKey) as? Bool ?? true
+        appearance = Appearance(rawValue: defaults?.string(forKey: Self.appearanceKey) ?? "") ?? .system
         // One at a time by default: each encode already uses every core (measured on an M4 Pro).
         concurrentJobs = min(max(defaults?.object(forKey: Self.concurrencyKey) as? Int ?? 1, 1), 4)
         lifetimeSavedBytes = Int64(defaults?.integer(forKey: Self.lifetimeBytesKey) ?? 0)
@@ -339,23 +351,137 @@ final class QueueStore {
         estimatedSettings = settings
         for job in jobs where job.status == .ready { job.isEstimating = true }
         let snapshot = settings
+        estimatesInFlight = true
         estimateTask = Task {
+            defer { if !Task.isCancelled { estimatesInFlight = false } }
             try? await Task.sleep(for: .milliseconds(650))
             guard !Task.isCancelled, !isRunning, let encoder = sampleEncoder else {
                 for job in jobs { job.isEstimating = false }
                 return
             }
-            for job in jobs where job.status == .ready {
+            // The previewed file goes first, and its sample doubles as the live thumbnail.
+            let target = previewTarget
+            let ready = jobs.filter { $0.status == .ready }
+            let ordered = ready.filter { $0.id == target?.id } + ready.filter { $0.id != target?.id }
+            for job in ordered {
                 guard !Task.isCancelled else { return }
                 job.isEstimating = true
-                job.estimate = await estimate(job, settings: job.customSettings ?? snapshot, encoder: encoder)
+                let wantsThumbnail = job.id == target?.id && !thumbnailIsCurrent(for: job)
+                job.estimate = await estimate(job, settings: job.customSettings ?? snapshot, encoder: encoder,
+                                              makeThumbnail: wantsThumbnail)
                 job.isEstimating = false
+            }
+            // A target that isn't waiting to encode (say, already done) still gets a fresh thumbnail.
+            if !Task.isCancelled, let target = previewTarget, !thumbnailIsCurrent(for: target) {
+                await makeThumbnail(for: target, encoder: encoder)
             }
         }
     }
 
-    private func estimate(_ job: EncodeJob, settings s: EncodeSettings, encoder: SampleEncoder) async -> Int64? {
+    // MARK: Live preview
+
+    /// The file the live thumbnail and Space-to-preview use: the selected row, else the first previewable one.
+    var previewTarget: EncodeJob? {
+        let previewable: (EncodeJob) -> Bool = { job in
+            job.media != nil && job.status != .encoding && job.status != .probing
+                && !self.effectiveSettings(for: job).container.isAudioOnly
+                && self.effectiveSettings(for: job).videoCodec != .copy
+        }
+        if let id = selectedJobID, let job = jobs.first(where: { $0.id == id }), previewable(job) { return job }
+        return jobs.first(where: previewable)
+    }
+
+    func thumbnailIsCurrent(for job: EncodeJob) -> Bool {
+        job.thumbnail?.settings == effectiveSettings(for: job)
+    }
+
+    /// Refreshes the live thumbnail on its own (selection changes, a new file at the top), unless the
+    /// estimate pass is about to do it anyway.
+    func scheduleThumbnail() {
+        guard !isRunning, !estimatesInFlight else { return }
+        thumbnailTask?.cancel()
+        thumbnailProcess?.cancel()
+        thumbnailTask = Task {
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled, !isRunning, let encoder = sampleEncoder,
+                  let target = previewTarget, !thumbnailIsCurrent(for: target) else { return }
+            await makeThumbnail(for: target, encoder: encoder)
+        }
+    }
+
+    /// A short sample from the middle, just for the thumbnail.
+    private func makeThumbnail(for job: EncodeJob, encoder: SampleEncoder) async {
+        guard let media = job.media else { return }
+        let s = effectiveSettings(for: job)
+        let kept = SampleEncoder.keptRange(s, media: media)
+        let span = kept.upperBound - kept.lowerBound
+        let length = min(1.5, span)
+        guard length > 0.2 else { return }
+        let start = kept.lowerBound + (span - length) / 2
+        let process = FFmpegProcess()
+        thumbnailProcess = process
+        job.isMakingThumbnail = true
+        defer { job.isMakingThumbnail = false }
+        guard let sample = try? await encoder.encode(input: job.input, media: media, settings: s, start: start,
+                                                     length: length, process: process) else { return }
+        defer { try? FileManager.default.removeItem(at: sample.output) }
+        await captureThumbnail(job, settings: s, media: media, encoder: encoder, sample: sample, start: start, process: process)
+    }
+
+    /// Grabs the middle frame of an encoded sample and the same frame rendered without compression.
+    private func captureThumbnail(_ job: EncodeJob, settings s: EncodeSettings, media: MediaInfo, encoder: SampleEncoder,
+                                  sample: SampleEncoder.Sample, start: Double, process: FFmpegProcess) async {
+        let outTime = sample.outDuration / 2
+        let speed = min(max(s.playbackSpeed, 0.25), 4)
+        guard let afterURL = try? await encoder.frame(from: sample.output, at: outTime, settings: s, process: process),
+              let beforeURL = try? await encoder.referenceFrame(input: job.input, media: media, settings: s,
+                                                                sourceTime: start + outTime * speed, process: process)
+        else { return }
+        defer {
+            try? FileManager.default.removeItem(at: afterURL)
+            try? FileManager.default.removeItem(at: beforeURL.deletingLastPathComponent())
+        }
+        // Read the bytes now; NSImage(contentsOf:) can load lazily, after the files are gone.
+        guard let afterData = try? Data(contentsOf: afterURL), let beforeData = try? Data(contentsOf: beforeURL),
+              let after = NSImage(data: afterData), let before = NSImage(data: beforeData) else { return }
+        withAnimation(Motion.out(0.25)) {
+            job.thumbnail = PreviewThumbnail(before: before, after: after, settings: s)
+        }
+    }
+
+    private func estimate(_ job: EncodeJob, settings s: EncodeSettings, encoder: SampleEncoder,
+                          makeThumbnail: Bool = false) async -> Int64? {
         guard let media = job.media, media.duration > 0 else { return nil }
+        if s.container.isAudioOnly && !media.hasAudio { return nil }
+        let direct = directEstimate(job, settings: s, media: media)
+        guard direct == nil || makeThumbnail else { return direct }
+
+        // Sample from the middle of the kept range: quality-based sizes depend on content, and the
+        // same sample gives the live thumbnail its frames.
+        let kept = SampleEncoder.keptRange(s, media: media)
+        let span = kept.upperBound - kept.lowerBound
+        let length = min(direct == nil ? 4 : 1.5, span)
+        guard length > 0.2 else { return direct }
+        let start = kept.lowerBound + (span - length) / 2
+        let process = FFmpegProcess()
+        estimateProcess = process
+        if makeThumbnail { job.isMakingThumbnail = true }
+        defer { if makeThumbnail { job.isMakingThumbnail = false } }
+        guard let sample = try? await encoder.encode(input: job.input, media: media, settings: s, start: start,
+                                                     length: length, process: process) else { return direct }
+        defer { try? FileManager.default.removeItem(at: sample.output) }
+        if makeThumbnail {
+            await captureThumbnail(job, settings: s, media: media, encoder: encoder, sample: sample, start: start, process: process)
+        }
+        if let direct { return direct }
+        guard sample.outDuration > 0 else { return nil }
+        let full = CommandBuilder(settings: s, input: job.input, output: job.input, media: media,
+                                  encoders: environment.encoders, filters: environment.filters).plan()
+        return Int64(Double(sample.bytes) * full.expectedDuration / sample.outDuration)
+    }
+
+    /// Sizes that don't need a sample encode: passthrough, bitrate, file-size limits and lossy audio.
+    private func directEstimate(_ job: EncodeJob, settings s: EncodeSettings, media: MediaInfo) -> Int64? {
         let full = CommandBuilder(settings: s, input: job.input, output: job.input, media: media,
                                   encoders: environment.encoders, filters: environment.filters).plan()
         let outDuration = full.expectedDuration
@@ -385,23 +511,7 @@ final class QueueStore {
             }
         }
 
-        // Sample from the middle of the kept range; quality-based sizes depend on content.
-        let kept = SampleEncoder.keptRange(s, media: media)
-        let span = kept.upperBound - kept.lowerBound
-        let length = min(4, span)
-        guard length > 0.2 else { return nil }
-        let start = kept.lowerBound + (span - length) / 2
-        let process = FFmpegProcess()
-        estimateProcess = process
-        do {
-            let sample = try await encoder.encode(input: job.input, media: media, settings: s, start: start,
-                                                  length: length, process: process)
-            defer { try? FileManager.default.removeItem(at: sample.output) }
-            guard sample.outDuration > 0 else { return nil }
-            return Int64(Double(sample.bytes) * outDuration / sample.outDuration)
-        } catch {
-            return nil
-        }
+        return nil
     }
 
     // MARK: Run
@@ -445,6 +555,8 @@ final class QueueStore {
         }
         estimateTask?.cancel()
         estimateProcess?.cancel()
+        thumbnailTask?.cancel()
+        thumbnailProcess?.cancel()
         persist()
         beginKeepAwake()
         isRunning = true
@@ -512,8 +624,10 @@ final class QueueStore {
     func cancelBackgroundWork() {
         runTask?.cancel()
         estimateTask?.cancel()
+        thumbnailTask?.cancel()
         for process in processes.values { process.cancel() }
         estimateProcess?.cancel()
+        thumbnailProcess?.cancel()
     }
 
     /// Moves a file above `target`, or to the end when `target` is nil.
@@ -718,4 +832,35 @@ final class QueueStore {
             }
         }
     }
+}
+
+/// The app's look: follow macOS, or force light or dark.
+enum Appearance: String, CaseIterable, Identifiable {
+    case system, light, dark
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .system: "System"
+        case .light: "Light"
+        case .dark: "Dark"
+        }
+    }
+
+    /// nil follows the system setting.
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: nil
+        case .light: .light
+        case .dark: .dark
+        }
+    }
+}
+
+/// Live-thumbnail frames: the same moment rendered without compression and encoded.
+struct PreviewThumbnail {
+    let before: NSImage
+    let after: NSImage
+    let settings: EncodeSettings
 }
