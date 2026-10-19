@@ -10,8 +10,8 @@ settings:
     # Apple silicon only: no Intel slice, so every build is arm64-native.
     ARCHS: arm64
     EXCLUDED_ARCHS: x86_64
-    MARKETING_VERSION: "0.1.0"
-    CURRENT_PROJECT_VERSION: "1"
+    MARKETING_VERSION: "0.2.0"
+    CURRENT_PROJECT_VERSION: "2"
 targets:
   Squish:
     type: application
