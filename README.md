@@ -33,7 +33,7 @@ xattr -dr com.apple.quarantine /Applications/Squish.app
 
 ## What it does
 
-**Simple mode:** one-tap presets: Smaller, Under 10 MB, Web ready, Modern (HEVC), ProRes 4444, Web alpha, GIF, Audio only and Archive. You can also save your own. Below the presets: format, quality *or* a target file size, resolution, and switches for audio, transparency, metadata and HDR. **Fastest** uses the Mac's media engine and **Smallest** uses software encoders.
+**Simple mode:** a preset menu at the top: Smaller, Under 10 MB, Web ready, Modern (HEVC), ProRes 4444, Web alpha, GIF, Audio only and Archive. You can also save your own from the bottom of the menu. Below it: format, quality *or* a target file size, resolution, and switches for audio, transparency, metadata and HDR. **Fastest** uses the Mac's media engine and **Smallest** uses software encoders.
 
 **Advanced mode:**
 - **Format:** MP4, MOV, MKV, WebM, GIF, WebP, APNG, PNG frames, or audio only (M4A/AAC, ALAC, MP3, WAV, FLAC). Video can be H.264, HEVC, AV1, VP9, ProRes or passthrough, with the media engine or software encoders.

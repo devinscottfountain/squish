@@ -94,7 +94,6 @@ struct SettingsSummary: View {
 struct SimpleSettingsView: View {
     @Environment(QueueStore.self) private var store
 
-    private let columns = [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)]
     /// M4A stands in for every audio format here and is labeled "Audio".
     private let formats: [Container] = [.mp4, .mov, .webm, .gif, .m4a]
     private let sizes: [Double] = [5, 10, 25, 50, 100]
@@ -105,33 +104,8 @@ struct SimpleSettingsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 VStack(alignment: .leading, spacing: 10) {
-                    SectionLabel("Start from")
-                    LazyVGrid(columns: columns, spacing: 8) {
-                        ForEach(QuickPreset.all) { preset in
-                            PresetTile(preset: preset, selected: store.selectedPresetID == preset.id,
-                                       unavailable: store.problem(with: preset)) {
-                                store.apply(preset)
-                            }
-                        }
-                    }
-                }
-
-                VStack(alignment: .leading, spacing: 10) {
-                    SectionLabel("Your presets")
-                    LazyVGrid(columns: columns, spacing: 8) {
-                        ForEach(store.savedPresets) { preset in
-                            PresetTile(name: preset.name, detail: preset.settings.summaryText, symbol: "star",
-                                       tint: Theme.lilac, selected: store.selectedPresetID == preset.selectionID) {
-                                store.apply(preset)
-                            }
-                            .contextMenu {
-                                Button("Update with Current Settings") { store.updatePreset(preset) }
-                                Divider()
-                                Button("Delete", role: .destructive) { store.deletePreset(preset) }
-                            }
-                        }
-                        SavePresetTile { store.isNamingPreset = true }
-                    }
+                    SectionLabel("Preset")
+                    PresetPicker()
                 }
 
                 VStack(alignment: .leading, spacing: 10) {
@@ -302,102 +276,230 @@ func qualityWord(_ q: Double) -> String {
     }
 }
 
-struct PresetTile: View {
-    let name: String
-    let detail: String
-    let symbol: String
-    let tint: Color
-    let selected: Bool
-    /// Set when this ffmpeg can't do what the preset needs; the tile dims and says why.
-    var unavailable: String?
-    let action: () -> Void
+/// The current preset as one row; clicking it opens every preset, the user's own, and "Save current…".
+struct PresetPicker: View {
+    @Environment(QueueStore.self) private var store
+    @State private var isOpen = false
     @State private var hovering = false
+    @State private var width: CGFloat = 280
 
-    init(name: String, detail: String, symbol: String, tint: Color, selected: Bool, unavailable: String? = nil,
-         action: @escaping () -> Void) {
-        self.name = name
-        self.detail = detail
-        self.symbol = symbol
-        self.tint = tint
-        self.selected = selected
-        self.unavailable = unavailable
-        self.action = action
+    private struct Current {
+        let name: String
+        let detail: String
+        let symbol: String
+        let tint: Color
     }
 
-    init(preset: QuickPreset, selected: Bool, unavailable: String? = nil, action: @escaping () -> Void) {
-        self.init(name: preset.name, detail: preset.detail, symbol: preset.symbol, tint: preset.tint,
-                  selected: selected, unavailable: unavailable, action: action)
+    private var current: Current {
+        let id = store.selectedPresetID
+        if let preset = QuickPreset.all.first(where: { $0.id == id }) {
+            return Current(name: preset.name, detail: preset.detail, symbol: preset.symbol, tint: preset.tint)
+        }
+        if let preset = store.savedPresets.first(where: { $0.selectionID == id }) {
+            return Current(name: preset.name, detail: preset.settings.summaryText, symbol: "star", tint: Theme.lilac)
+        }
+        return Current(name: "Custom", detail: store.settings.summaryText, symbol: "slider.horizontal.3", tint: Theme.secondary)
     }
 
     var body: some View {
-        Button(action: action) {
-            VStack(alignment: .leading, spacing: 9) {
-                StateIcon(symbol: symbol, filled: selected)
-                    .font(.system(size: 11.5, weight: .semibold))
-                    .foregroundStyle(tint)
-                    .frame(width: 26, height: 26)
-                    .background(Circle().fill(tint.opacity(0.16)))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(name)
+        let c = current
+        Button { isOpen.toggle() } label: {
+            HStack(spacing: 10) {
+                PresetIcon(symbol: c.symbol, tint: c.tint, filled: true)
+                    .id(c.symbol)
+                    .transition(.iconSwap)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(c.name)
                         .font(.system(size: 12.5, weight: .semibold))
                         .foregroundStyle(Theme.text)
-                    Text(unavailable ?? detail)
+                    Text(c.detail)
                         .font(.system(size: 10.5))
-                        .foregroundStyle(unavailable == nil ? Theme.tertiary : Theme.red.opacity(0.85))
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
+                        .foregroundStyle(Theme.tertiary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                 }
-                Spacer(minLength: 0)
+                Spacer(minLength: 6)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(hovering || isOpen ? Theme.secondary : Theme.tertiary)
             }
-            .frame(maxWidth: .infinity, minHeight: 92, alignment: .topLeading)
-            .padding(11)
+            .padding(.leading, 9)
+            .padding(.trailing, 12)
+            .padding(.vertical, 8)
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(selected ? Theme.raised : Theme.field.opacity(hovering ? 0.8 : 0.45))
+                    .fill(Theme.field.opacity(hovering || isOpen ? 0.9 : 0.6))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .strokeBorder(selected ? tint.opacity(0.8) : Theme.stroke, lineWidth: selected ? 1.5 : 1)
-            )
-            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        }
-        .buttonStyle(PressableStyle())
-        .disabled(unavailable != nil)
-        .opacity(unavailable != nil ? 0.5 : 1)
-        .onHover { hovering = $0 }
-        .accessibilityLabel("\(name) preset")
-        .accessibilityHint(unavailable ?? detail)
-        .accessibilityAddTraits(selected ? .isSelected : [])
-    }
-}
-
-/// Dashed "save what I have now" tile at the end of the user's presets.
-struct SavePresetTile: View {
-    let action: () -> Void
-    @State private var hovering = false
-
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 6) {
-                Image(systemName: "plus")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(hovering ? Theme.text : Theme.secondary)
-                Text("Save current…")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(hovering ? Theme.text : Theme.secondary)
-            }
-            .frame(maxWidth: .infinity, minHeight: 92)
-            .padding(11)
-            .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .strokeBorder(style: StrokeStyle(lineWidth: 1.2, dash: [5, 5]))
-                    .foregroundStyle(hovering ? Theme.secondary : Theme.tertiary)
+                    .strokeBorder(Theme.stroke, lineWidth: 1)
             )
             .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .buttonStyle(PressableStyle())
         .onHover { h in withAnimation(Motion.hover) { hovering = h } }
-        .accessibilityLabel("Save current settings as a preset")
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+        .popover(isPresented: $isOpen, arrowEdge: .bottom) {
+            PresetList(width: max(width, 260)) { isOpen = false }
+                .environment(store)
+        }
+        .accessibilityLabel("Preset")
+        .accessibilityValue(c.name)
+        .accessibilityHint("Opens the list of presets")
+    }
+}
+
+/// What the preset popover shows: built-ins, the user's presets, then "Save current settings…".
+private struct PresetList: View {
+    @Environment(QueueStore.self) private var store
+    let width: CGFloat
+    let close: () -> Void
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(QuickPreset.all) { preset in
+                    PresetRow(name: preset.name, detail: preset.detail, symbol: preset.symbol, tint: preset.tint,
+                              selected: store.selectedPresetID == preset.id,
+                              unavailable: store.problem(with: preset)) {
+                        store.apply(preset)
+                        close()
+                    }
+                }
+
+                if !store.savedPresets.isEmpty {
+                    SectionLabel("Your presets")
+                        .padding(.horizontal, 8)
+                        .padding(.top, 10)
+                        .padding(.bottom, 4)
+                    ForEach(store.savedPresets) { preset in
+                        PresetRow(name: preset.name, detail: preset.settings.summaryText, symbol: "star", tint: Theme.lilac,
+                                  selected: store.selectedPresetID == preset.selectionID) {
+                            store.apply(preset)
+                            close()
+                        } menu: {
+                            Button("Update with Current Settings") { store.updatePreset(preset) }
+                            Divider()
+                            Button("Delete", role: .destructive) { store.deletePreset(preset) }
+                        }
+                    }
+                }
+
+                Rectangle().fill(Theme.divider).frame(height: 1)
+                    .padding(.vertical, 6)
+                    .padding(.horizontal, 6)
+
+                PresetRow(name: "Save current settings…", detail: nil, symbol: "plus", tint: Theme.secondary, selected: false) {
+                    close()
+                    // Let the popover finish closing so the name prompt attaches to the window.
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(200))
+                        store.isNamingPreset = true
+                    }
+                }
+            }
+            .padding(6)
+        }
+        .scrollIndicators(.automatic)
+        .frame(width: width)
+        .frame(maxHeight: 520)
+        .fixedSize(horizontal: false, vertical: true)
+        .preferredColorScheme(store.appearance.colorScheme)
+    }
+}
+
+private struct PresetRow<MenuItems: View>: View {
+    let name: String
+    let detail: String?
+    let symbol: String
+    let tint: Color
+    let selected: Bool
+    var unavailable: String? = nil
+    let action: () -> Void
+    @ViewBuilder var menu: MenuItems
+    @State private var hovering = false
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Button(action: action) {
+                HStack(spacing: 10) {
+                    PresetIcon(symbol: symbol, tint: tint, filled: selected)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(name)
+                            .font(.system(size: 12.5, weight: .semibold))
+                            .foregroundStyle(Theme.text)
+                        if let text = unavailable ?? detail {
+                            Text(text)
+                                .font(.system(size: 10.5))
+                                .foregroundStyle(unavailable == nil ? Theme.tertiary : Theme.red.opacity(0.85))
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                        }
+                    }
+                    Spacer(minLength: 6)
+                    if selected {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 10.5, weight: .bold))
+                            .foregroundStyle(tint)
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(PressableStyle())
+            .disabled(unavailable != nil)
+
+            if MenuItems.self != EmptyView.self {
+                Menu { menu } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Theme.secondary)
+                        .frame(width: 22, height: 22)
+                        .contentShape(Rectangle())
+                }
+                .menuStyle(.button)
+                .buttonStyle(PressableStyle())
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .opacity(hovering ? 1 : 0)
+                .padding(.leading, 4)
+                .accessibilityLabel("More for \(name)")
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(selected ? Theme.raised : (hovering && unavailable == nil ? Theme.field : .clear))
+        )
+        .opacity(unavailable != nil ? 0.5 : 1)
+        .onHover { h in withAnimation(Motion.hover) { hovering = h } }
+        .contextMenu { menu }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(name)
+        .accessibilityHint(unavailable ?? detail ?? "")
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+extension PresetRow where MenuItems == EmptyView {
+    init(name: String, detail: String?, symbol: String, tint: Color, selected: Bool, unavailable: String? = nil,
+         action: @escaping () -> Void) {
+        self.init(name: name, detail: detail, symbol: symbol, tint: tint, selected: selected,
+                  unavailable: unavailable, action: action, menu: { EmptyView() })
+    }
+}
+
+private struct PresetIcon: View {
+    let symbol: String
+    let tint: Color
+    let filled: Bool
+
+    var body: some View {
+        StateIcon(symbol: symbol, filled: filled)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(tint)
+            .frame(width: 26, height: 26)
+            .background(Circle().fill(tint.opacity(0.16)))
     }
 }
 
