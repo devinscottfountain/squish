@@ -30,10 +30,12 @@ struct SettingsWindow: View {
 
 private struct GeneralSettings: View {
     @Environment(QueueStore.self) private var store
+    @Environment(AppUpdater.self) private var updater
     @State private var confirmingReset = false
 
     var body: some View {
         @Bindable var store = store
+        @Bindable var updater = updater
         Form {
             Section {
                 Picker("Appearance", selection: $store.appearance) {
@@ -82,6 +84,26 @@ private struct GeneralSettings: View {
             }
 
             Section {
+                Toggle("Check for updates automatically", isOn: $updater.checksAutomatically)
+                Toggle("Download and install updates in the background", isOn: $updater.installsAutomatically)
+                    .disabled(!updater.checksAutomatically)
+                HStack {
+                    Text(lastCheckedText)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Check Now") { updater.checkForUpdates() }
+                        .disabled(!updater.canCheck)
+                }
+            } header: {
+                Text("Updates")
+            } footer: {
+                Text("Squish asks GitHub about once a day whether a newer version is out. Nothing else is sent.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
                 Text("Your queue is saved when you quit and comes back next time. Files that were moved or deleted are skipped.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
@@ -95,6 +117,11 @@ private struct GeneralSettings: View {
         } message: {
             Text("This only clears the counters. Your files aren't touched.")
         }
+    }
+
+    private var lastCheckedText: String {
+        guard let date = updater.lastChecked else { return "Version \(updater.version). Not checked yet." }
+        return "Version \(updater.version). Last checked \(date.formatted(.relative(presentation: .named)))."
     }
 }
 

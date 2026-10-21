@@ -968,25 +968,29 @@ struct LiveThumbnail: View {
             ZStack {
                 if let thumb = job.thumbnail {
                     GeometryReader { geo in
-                        let width = geo.size.width
+                        // The whole frame, letterboxed: vertical and square video isn't cropped.
+                        let size = fitted(thumb.after.size, in: geo.size)
                         ZStack(alignment: .leading) {
-                            frame(thumb.after, size: geo.size)
-                            frame(thumb.before, size: geo.size)
-                                .mask(alignment: .leading) { Rectangle().frame(width: width * split) }
+                            frame(thumb.after, size: size)
+                            frame(thumb.before, size: size)
+                                .mask(alignment: .leading) { Rectangle().frame(width: size.width * split) }
                             Rectangle()
                                 .fill(.white)
                                 .frame(width: 1.5)
                                 .shadow(color: .black.opacity(0.5), radius: 2)
-                                .offset(x: width * split - 0.75)
+                                .offset(x: size.width * split - 0.75)
                         }
+                        .frame(width: size.width, height: size.height)
+                        .contentShape(Rectangle())
                         .onContinuousHover { phase in
                             switch phase {
                             case .active(let point):
-                                split = min(max(point.x / max(width, 1), 0), 1)
+                                split = min(max(point.x / max(size.width, 1), 0), 1)
                             case .ended:
                                 withAnimation(Motion.out(0.3)) { split = 0.5 }
                             }
                         }
+                        .frame(width: geo.size.width, height: geo.size.height)
                     }
                     // Old frames stay up, softened, while new ones are made.
                     .blur(radius: current ? 0 : 3)
@@ -995,7 +999,8 @@ struct LiveThumbnail: View {
                     Theme.field
                 }
             }
-            .frame(height: 180)
+            .background(Theme.well)
+            .aspectRatio(boxRatio, contentMode: .fit)
             .clipShape(shape)
             .overlay(shape.strokeBorder(Theme.imageOutline, lineWidth: 1))
             .overlay(alignment: .topLeading) { tag("Original").padding(8) }
@@ -1034,12 +1039,23 @@ struct LiveThumbnail: View {
         .accessibilityHint("Opens the full before and after preview")
     }
 
+    /// The box follows the video's shape, but stays between 2:1 and roughly 6:5 so tall video
+    /// doesn't push the options off the panel.
+    private var boxRatio: CGFloat {
+        guard let size = job.thumbnail?.after.size, size.width > 0, size.height > 0 else { return 16 / 9 }
+        return min(max(size.width / size.height, 1.2), 2)
+    }
+
+    private func fitted(_ image: CGSize, in box: CGSize) -> CGSize {
+        guard image.width > 0, image.height > 0 else { return box }
+        let scale = min(box.width / image.width, box.height / image.height)
+        return CGSize(width: image.width * scale, height: image.height * scale)
+    }
+
     private func frame(_ image: NSImage, size: CGSize) -> some View {
         Image(nsImage: image)
             .resizable()
-            .scaledToFill()
             .frame(width: size.width, height: size.height)
-            .clipped()
     }
 
     private func tag(_ text: String) -> some View {

@@ -16,10 +16,19 @@
 #                               libvpx, Opus, LAME, libwebp, zimg. Takes a while; resumes if interrupted.
 #
 # Each release:
-#   1. Bump MARKETING_VERSION (and CURRENT_PROJECT_VERSION) in project.yml, and commit.
-#   2. Run this script with --adhoc (above). It makes dist/Squish-<version>.dmg.
-#   3. Publish it; this also creates the v<version> tag:
+#   1. Bump MARKETING_VERSION and CURRENT_PROJECT_VERSION in project.yml, and commit. Sparkle compares
+#      CURRENT_PROJECT_VERSION, so it must go up every release.
+#   2. Write what's new as a short Markdown list (it's what the in-app update window shows), then run:
+#        SQUISH_NOTES=notes.md SQUISH_SOURCE_URL=… Tools/release.sh --adhoc
+#      It makes dist/Squish-<version>.dmg, signs it for Sparkle, and adds it to appcast.xml.
+#   3. Publish the DMG; this also creates the v<version> tag:
 #        gh release create v<version> dist/Squish-<version>.dmg --title "Squish <version>" --notes "…"
+#   4. Only then commit and push appcast.xml. Pushing it is what tells existing copies to update,
+#      so the DMG has to be downloadable first.
+#
+# Sparkle signs updates with an EdDSA key kept in your login Keychain (account "squish"); its public
+# half is SUPublicEDKey in project.yml. Back it up (generate_keys --account squish -x <file>, then
+# keep the file somewhere safe and delete it). If it's lost, existing copies can never update again.
 #
 # Licensing: the bundled ffmpeg is built with --enable-gpl --enable-version3, so Squish is GPL v3 and
 # every release must point at its source. That's what SQUISH_SOURCE_URL records in the app's notices.
@@ -33,6 +42,8 @@
 #   SIGN_IDENTITY       codesigning identity (default: "Developer ID Application")
 #   NOTARY_PROFILE      notarytool keychain profile (default: squish-notary)
 #   SQUISH_SOURCE_URL   where people can get Squish's source; required for real releases (GPL)
+#   SQUISH_NOTES        Markdown file with what's new, shown in the update window (required for
+#                       public releases; a few "- " bullets is plenty)
 set -euo pipefail
 
 ROOT="${0:A:h:h}"
@@ -46,6 +57,8 @@ IDENTITY="${SIGN_IDENTITY:-Developer ID Application}"
 PROFILE="${NOTARY_PROFILE:-squish-notary}"
 SOURCE_URL="${SQUISH_SOURCE_URL:-}"
 FFMPEG="$ROOT/Tools/ffmpeg-build/out"
+NOTES="${SQUISH_NOTES:-}"
+REPO_URL="https://github.com/devinscottfountain/squish"
 DIST="$ROOT/dist"
 
 step() { print -P "%F{yellow}==>%f %B$1%b"; }
@@ -63,6 +76,7 @@ if ! $LOCAL; then
 fi
 if $PUBLIC; then
   [[ -n "$SOURCE_URL" ]] || fail "Set SQUISH_SOURCE_URL to where Squish's source is published. The GPL requires offering it."
+  [[ -f "$NOTES" ]] || fail "Set SQUISH_NOTES to a Markdown file with what's new. It's shown in the in-app update window."
 fi
 [[ -n "$SOURCE_URL" ]] || SOURCE_URL="(local test build: no public source URL set)"
 
@@ -81,6 +95,12 @@ xcodebuild -project Squish.xcodeproj -scheme Squish -configuration Release \
   CODE_SIGNING_ALLOWED=NO build -quiet
 BUILT="$ROOT/build/release/Build/Products/Release/Squish.app"
 [[ -d "$BUILT" ]] || fail "Release build not found at $BUILT"
+SPARKLE_BIN="$ROOT/build/release/SourcePackages/artifacts/sparkle/Sparkle/bin"
+[[ -x "$SPARKLE_BIN/sign_update" ]] || fail "Sparkle's tools weren't found at $SPARKLE_BIN"
+if $PUBLIC; then
+  "$SPARKLE_BIN/generate_keys" --account squish -p >/dev/null 2>&1 \
+    || fail "No Sparkle signing key in your keychain (account \"squish\"). Restore it with generate_keys --account squish -f <backup>."
+fi
 
 rm -rf "$DIST"
 mkdir -p "$DIST"
@@ -109,11 +129,21 @@ cp "$ROOT/LICENSE" "$APP/Contents/Resources/Licenses/Squish-LICENSE.txt"
   cat "$FFMPEG/VERSIONS.txt"
 } > "$APP/Contents/Resources/Licenses/THIRD_PARTY_NOTICES.txt"
 
-# --- Sign: helpers first, then the app ------------------------------------------------------------
+# --- Sign: helpers and Sparkle first, then the app -------------------------------------------------
 step "Signing ($([[ $LOCAL == true ]] && echo "ad-hoc" || echo "$IDENTITY"))"
 "${SIGN[@]}" "$APP/Contents/Helpers/ffmpeg"
 "${SIGN[@]}" "$APP/Contents/Helpers/ffprobe"
-"${SIGN[@]}" "$APP"
+# Squish isn't sandboxed, so Sparkle installs directly and doesn't need its XPC services.
+SPARKLE="$APP/Contents/Frameworks/Sparkle.framework"
+rm -rf "$SPARKLE/Versions/B/XPCServices" "$SPARKLE/XPCServices"
+"${SIGN[@]}" "$SPARKLE/Versions/B/Autoupdate"
+"${SIGN[@]}" "$SPARKLE/Versions/B/Updater.app"
+"${SIGN[@]}" "$SPARKLE"
+if $LOCAL; then
+  "${SIGN[@]}" --entitlements "$ROOT/Tools/adhoc.entitlements" "$APP"
+else
+  "${SIGN[@]}" "$APP"
+fi
 codesign --verify --deep --strict --verbose=1 "$APP"
 "$APP/Contents/Helpers/ffmpeg" -hide_banner -version | head -1
 
@@ -139,6 +169,16 @@ else
   step "Stapling the ticket"
   xcrun stapler staple "$DMG"
   spctl --assess --type open --context context:primary-signature --verbose "$DMG"
+fi
+
+# --- Appcast --------------------------------------------------------------------------------------
+if $PUBLIC; then
+  step "Signing the update and adding it to appcast.xml"
+  SIGNATURE=$("$SPARKLE_BIN/sign_update" --account squish "$DMG")
+  python3 "$ROOT/Tools/appcast.py" "$ROOT/appcast.xml" \
+    --version "$VERSION" --build "$BUILD_NUMBER" --notes "$NOTES" --signature "$SIGNATURE" \
+    --url "$REPO_URL/releases/download/v$VERSION/Squish-$VERSION.dmg"
+  echo "  Publish the DMG first, then commit and push appcast.xml (see the steps at the top)."
 fi
 
 echo

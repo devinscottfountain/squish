@@ -41,6 +41,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 struct SquishApp: App {
     @NSApplicationDelegateAdaptor private var delegate: AppDelegate
     @State private var store = QueueStore()
+    @State private var updater = AppUpdater()
 
     var body: some Scene {
         WindowGroup {
@@ -54,7 +55,11 @@ struct SquishApp: App {
         .windowBackgroundDragBehavior(.enabled)
         .defaultSize(width: 1120, height: 760)
         .commands {
-            CommandGroup(replacing: .appInfo) { AboutMenuItem() }
+            CommandGroup(replacing: .appInfo) {
+                AboutMenuItem()
+                Button("Check for Updates…") { updater.checkForUpdates() }
+                    .disabled(!updater.canCheck)
+            }
             CommandGroup(after: .newItem) {
                 Button("Add Videos…") { store.presentOpenPanel() }
                     .keyboardShortcut("o")
@@ -95,6 +100,7 @@ struct SquishApp: App {
         Settings {
             SettingsWindow()
                 .environment(store)
+                .environment(updater)
         }
     }
 }

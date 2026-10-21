@@ -29,7 +29,7 @@ xattr -dr com.apple.quarantine /Applications/Squish.app
 
 **Is this safe?** The warning means Apple hasn't reviewed the app, not that anything is wrong with it. Squish is open source: everything in the app is built from the code in this repository, including the script that builds its bundled ffmpeg (`Tools/build-ffmpeg.sh`). If you'd rather not trust a download, [build it yourself](#build-from-source).
 
-**Updating:** download the new DMG and replace the app in Applications. You'll need to approve it again on first launch.
+**Updating:** from 0.2.2 on, Squish updates itself. It checks about once a day (or use **Squish › Check for Updates…**), shows what's new, and installs with one click, with no approval step. Updates are signed, and Squish only installs ones signed with the project's key. You can turn checking off in **Settings › General › Updates**. Coming from 0.2.1 or earlier, download the new DMG once and replace the app in Applications.
 
 ## What it does
 
@@ -49,6 +49,7 @@ xattr -dr com.apple.quarantine /Applications/Squish.app
 - **Queue:** drag and drop files or folders. Reorder by dragging, pin settings to individual files, and retry or stop single files. The queue is remembered between launches.
 - **Before you encode:** a size estimate for each file (from a short sample encode). Simple mode also has a live before/after thumbnail that follows your settings. Click it, the Preview button, or press **Space** on a selected file for the full split-screen preview.
 - **While it runs:** live progress, speed and time left, a Dock progress bar, and keep-awake so the Mac doesn't sleep mid-batch.
+- **Updates:** one-click in-app updates through [Sparkle](https://sparkle-project.org).
 - **Built in:** the exact ffmpeg command for any file, plus Settings (⌘,) and About with full license notices.
 - **Light and dark:** follows your Mac's appearance, or pick one in Settings.
 
@@ -101,7 +102,8 @@ The tests (`SquishTests`, Swift Testing) cover the command builder and also run 
 | `Squish/Engine/SampleEncoder.swift` | Short sample encodes for size estimates and the before/after preview |
 | `Squish/Store/` | The queue, encode loop, persistence, keep-awake and quit cleanup |
 | `Squish/Views/` | SwiftUI: glass cards, pill controls, status glyphs, floating toolbar, Settings and About |
-| `Tools/` | `build-ffmpeg.sh`, `release.sh`, the icon renderer and the finish-sound synthesizer |
+| `Squish/Engine/Updater.swift` | Sparkle setup for in-app updates; the feed is `appcast.xml` in this repo |
+| `Tools/` | `build-ffmpeg.sh`, `release.sh` (with `appcast.py`), the icon renderer and the finish-sound synthesizer |
 
 ## Small delights
 

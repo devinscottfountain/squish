@@ -4,23 +4,34 @@ options:
   deploymentTarget:
     macOS: "15.0"
   createIntermediateGroups: true
+packages:
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: "2.9.0"
 settings:
   base:
     SWIFT_VERSION: "5.0"
     # Apple silicon only: no Intel slice, so every build is arm64-native.
     ARCHS: arm64
     EXCLUDED_ARCHS: x86_64
-    MARKETING_VERSION: "0.2.1"
-    CURRENT_PROJECT_VERSION: "3"
+    MARKETING_VERSION: "0.2.2"
+    CURRENT_PROJECT_VERSION: "4"
 targets:
   Squish:
     type: application
     platform: macOS
     sources: [Squish]
+    dependencies:
+      - package: Sparkle
     info:
       path: Squish/Info.plist
       properties:
         LSArchitecturePriority: [arm64]
+        # Sparkle: updates are listed in appcast.xml on main and signed with the key in Keychain
+        # (account "squish"). Losing that key means existing copies can't be updated again.
+        SUFeedURL: https://raw.githubusercontent.com/devinscottfountain/squish/main/appcast.xml
+        SUPublicEDKey: +jC9dCkP+DQ3dUzMsfpK/EOyFM/ZRRxDTg2agcFaHWk=
+        SUEnableAutomaticChecks: true
         CFBundleDocumentTypes:
           - CFBundleTypeName: Video
             CFBundleTypeRole: Viewer

@@ -40,5 +40,11 @@
 	<array>
 		<string>arm64</string>
 	</array>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUFeedURL</key>
+	<string>https://raw.githubusercontent.com/devinscottfountain/squish/main/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>+jC9dCkP+DQ3dUzMsfpK/EOyFM/ZRRxDTg2agcFaHWk=</string>
 </dict>
 </plist>
