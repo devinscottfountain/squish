@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+  <channel>
+    <title>Squish</title>
+    <link>https://github.com/devinscottfountain/squish</link>
+    <description>Updates for Squish</description>
+    <language>en</language>
+<!-- items -->
+    <item>
+      <title>Version 0.2.2</title>
+      <pubDate>Wed, 21 Oct 2026 21:22:23 GMT</pubDate>
+      <sparkle:version>4</sparkle:version>
+      <sparkle:shortVersionString>0.2.2</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+      <sparkle:fullReleaseNotesLink>https://github.com/devinscottfountain/squish/releases/tag/v0.2.2</sparkle:fullReleaseNotesLink>
+      <description><![CDATA[
+<ul><li><b>Updates from inside Squish.</b> From now on Squish checks for new versions about once a day and installs them in one click, with no approval step. You can also use <b>Squish › Check for Updates…</b>, or turn checking off in <b>Settings › General › Updates</b>.</li><li><b>Vertical video previews.</b> The small before/after preview now shows the whole frame for vertical and square video, instead of cropping it to widescreen.</li></ul>
+      ]]></description>
+      <enclosure url="https://github.com/devinscottfountain/squish/releases/download/v0.2.2/Squish-0.2.2.dmg" type="application/octet-stream" sparkle:edSignature="F/JcUWa51ruVHMxYljeZmsnovY/Ry8ZwAMwOPxDnOaJah5Sdxo/Hfomd+6hadK8IZ468kOY2gywcIYV8+OYmAQ==" length="42449897" />
+    </item>
+  </channel>
+</rss>
