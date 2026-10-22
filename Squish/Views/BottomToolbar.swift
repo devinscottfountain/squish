@@ -133,9 +133,9 @@ struct StartButton: View {
                         .transition(.iconSwap)
                 }
                 ZStack {
-                    Text(running ? "Stop" : "Squish")
+                    Text(running ? "Stop" : (store.startRunsAgain ? "Squish again" : "Squish"))
                         .font(.system(size: 14, weight: .semibold))
-                        .id(running)
+                        .id("\(running)-\(store.startRunsAgain)")
                         .transition(.blurFade)
                 }
                 if !running && count > 0 {
@@ -171,7 +171,9 @@ struct StartButton: View {
         .opacity(enabled ? 1 : 0.45)
         .onHover { hovering = $0 }
         .keyboardShortcut(.return, modifiers: .command)
-        .help(running ? "Stop encoding" : (problem ?? "Start encoding (⌘↩)"))
+        .help(running ? "Stop encoding" : (problem ?? (store.startRunsAgain
+            ? "Encode the finished files again with the current settings. Earlier files are kept (⌘↩)"
+            : "Start encoding (⌘↩)")))
     }
 }
 

@@ -45,6 +45,8 @@ final class EncodeJob: Identifiable {
 
     var name: String { input.lastPathComponent }
     var isRunnable: Bool { status == .ready || status == .failed || status == .cancelled }
+    /// Finished files can be squished again, e.g. after changing settings. Earlier output is kept.
+    var canRunAgain: Bool { isRunnable || status == .done }
 
     var savings: Double? {
         guard let outputSize, inputSize > 0 else { return nil }
@@ -246,7 +248,12 @@ final class QueueStore {
     var hasFinished: Bool { jobs.contains { $0.status == .done } }
 
     func add(urls: [URL]) {
-        let fresh = expand(urls).filter { url in !jobs.contains(where: { $0.input == url }) }
+        let expanded = expand(urls)
+        // Adding a file that already finished readies it for another pass instead of being ignored.
+        for job in jobs where job.status == .done && expanded.contains(job.input) {
+            withAnimation(.snappy) { job.status = .ready }
+        }
+        let fresh = expanded.filter { url in !jobs.contains(where: { $0.input == url }) }
         for (index, url) in fresh.enumerated() {
             let job = EncodeJob(input: url)
             // Rows cascade in 40 ms apart (capped, so a folder of 200 clips doesn't take seconds).
@@ -520,14 +527,25 @@ final class QueueStore {
     func effectiveSettings(for job: EncodeJob) -> EncodeSettings { job.customSettings ?? settings }
 
     /// Files that can start right now: runnable, and nothing their settings need is missing.
-    var startableCount: Int {
-        jobs.filter { $0.isRunnable && environment.problem(with: effectiveSettings(for: $0)) == nil }.count
+    /// True when nothing is waiting but some files finished: Squish then runs those again with the
+    /// current settings, so a second pass doesn't need clearing the queue.
+    var startRunsAgain: Bool {
+        !jobs.contains(where: \.isRunnable) && jobs.contains { $0.status == .done }
     }
 
-    /// Why nothing can start, when every runnable file is blocked by a missing ffmpeg feature.
+    /// The files the Squish button would start: everything waiting, or else everything finished.
+    private var startCandidates: [EncodeJob] {
+        startRunsAgain ? jobs.filter { $0.status == .done } : jobs.filter(\.isRunnable)
+    }
+
+    var startableCount: Int {
+        startCandidates.filter { environment.problem(with: effectiveSettings(for: $0)) == nil }.count
+    }
+
+    /// Why nothing can start, when every candidate file is blocked by a missing ffmpeg feature.
     var startProblem: String? {
         guard startableCount == 0 else { return nil }
-        return jobs.lazy.filter(\.isRunnable).compactMap { self.environment.problem(with: self.effectiveSettings(for: $0)) }.first
+        return startCandidates.lazy.compactMap { self.environment.problem(with: self.effectiveSettings(for: $0)) }.first
     }
 
     private func queue(_ job: EncodeJob) -> Bool {
@@ -545,10 +563,11 @@ final class QueueStore {
         return true
     }
 
-    /// Encodes every runnable file, or just `subset`, `concurrentJobs` at a time.
+    /// Encodes every runnable file (or, when none are waiting, every finished one again), or just
+    /// `subset`, `concurrentJobs` at a time.
     func start(only subset: [EncodeJob]? = nil) {
         guard !isRunning, let ffmpeg = environment.ffmpeg else { return }
-        let queued = (subset ?? jobs).filter(\.isRunnable).filter { queue($0) }
+        let queued = (subset?.filter(\.canRunAgain) ?? startCandidates).filter { queue($0) }
         guard !queued.isEmpty else {
             saveQueue()
             return
@@ -681,9 +700,9 @@ final class QueueStore {
         }
     }
 
-    /// Runs a failed or stopped file again, joining the current batch if one is running.
+    /// Runs a failed, stopped or finished file again, joining the current batch if one is running.
     func retry(_ job: EncodeJob) {
-        guard job.isRunnable else { return }
+        guard job.canRunAgain else { return }
         if isRunning {
             if queue(job) { batch.append(job) }
             updateDockProgress()

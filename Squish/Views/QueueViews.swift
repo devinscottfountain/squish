@@ -289,8 +289,8 @@ struct JobRow: View {
                 Spacer(minLength: 8)
                 if hovering {
                     HStack(spacing: 6) {
-                        if job.status == .failed || job.status == .cancelled {
-                            RowButton(symbol: "arrow.clockwise", help: "Try again") { store.retry(job) }
+                        if job.canRunAgain && job.status != .ready {
+                            RowButton(symbol: "arrow.clockwise", help: retryHelp) { store.retry(job) }
                         }
                         if job.status == .encoding || job.status == .queued {
                             RowButton(symbol: "stop.fill", help: "Stop this file") { store.cancel(job) }
@@ -323,7 +323,7 @@ struct JobRow: View {
                 withAnimation { expanded.toggle() }
             }
             .accessibilityAction(named: "Remove from queue") { store.remove(job) }
-            .accessibilityAction(named: "Try again") { store.retry(job) }
+            .accessibilityAction(named: job.status == .done ? "Squish again" : "Try again") { store.retry(job) }
             .accessibilityAction(named: "Stop this file") { store.cancel(job) }
             .accessibilityAction(named: "Move to top") { store.move(job.id, before: store.jobs.first?.id) }
             .accessibilityAction(named: "Move to bottom") { store.move(job.id, before: nil) }
@@ -371,6 +371,10 @@ struct JobRow: View {
         case .failed: Theme.red
         case .cancelled: Theme.secondary
         }
+    }
+
+    private var retryHelp: String {
+        job.status == .done ? "Squish again with the current settings" : "Try again"
     }
 
     private var detail: String {
@@ -457,6 +461,10 @@ struct JobDetail: View {
                 if job.status == .failed || job.status == .cancelled {
                     Button("Try again") { store.retry(job) }
                         .buttonStyle(MiniChipStyle(selected: true))
+                } else if job.status == .done {
+                    Button("Squish again") { store.retry(job) }
+                        .buttonStyle(MiniChipStyle(selected: true))
+                        .help("Encode this file again with the current settings. The earlier file is kept.")
                 }
                 if job.media != nil && !store.isRunning && !store.effectiveSettings(for: job).container.isAudioOnly {
                     Button("Preview") { store.previewJob = job }
@@ -682,6 +690,8 @@ private struct JobMenu: View {
     var body: some View {
         if job.status == .failed || job.status == .cancelled {
             Button("Try Again") { store.retry(job) }
+        } else if job.status == .done {
+            Button("Squish Again") { store.retry(job) }
         }
         if job.status == .encoding || job.status == .queued {
             Button("Stop This File") { store.cancel(job) }

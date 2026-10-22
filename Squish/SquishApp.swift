@@ -67,7 +67,7 @@ struct SquishApp: App {
                     .keyboardShortcut("o", modifiers: [.command, .shift])
             }
             CommandMenu("Queue") {
-                Button(store.isRunning ? "Stop" : "Start") { store.isRunning ? store.stop() : store.start(only: nil) }
+                Button(store.isRunning ? "Stop" : (store.startRunsAgain ? "Squish Again" : "Start")) { store.isRunning ? store.stop() : store.start(only: nil) }
                     .keyboardShortcut(.return, modifiers: .command)
                 Button("Retry Failed") { store.retryFailed() }
                     .keyboardShortcut("r", modifiers: [.command, .shift])

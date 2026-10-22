@@ -534,6 +534,40 @@ struct BatchIntegrationTests {
         #expect(outputs.filter { $0.hasPrefix("clip-squished") && $0.hasSuffix(".mp4") }.count == 2)
     }
 
+    @Test func finishedFilesCanBeSquishedAgain() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("squish-tests-again-\(UUID().uuidString.prefix(6))")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let input = dir.appendingPathComponent("again.mp4")
+        try await clip(input)
+
+        let store = await makeStore()
+        store.add(urls: [input])
+        try await waitUntil { store.jobs.first?.status == .ready }
+        let job = store.jobs[0]
+        store.start(only: nil)
+        try await waitUntil { !store.isRunning }
+        let first = try #require(job.output)
+        #expect(job.status == .done)
+
+        // Nothing is waiting, so Squish offers the finished file again, with new settings.
+        #expect(store.startRunsAgain)
+        #expect(store.startableCount == 1)
+        store.settings.container = .webm
+        store.settings.normalize()
+        store.start(only: nil)
+        try await waitUntil { !store.isRunning }
+        #expect(job.status == .done, "\(job.message ?? "")")
+        #expect(job.output?.pathExtension == "webm")
+        #expect(FileManager.default.fileExists(atPath: first.path), "the first pass's file is kept")
+
+        // Dropping a finished file in again readies it instead of being ignored.
+        store.add(urls: [input])
+        #expect(store.jobs.count == 1)
+        #expect(job.status == .ready)
+        #expect(!store.startRunsAgain)
+    }
+
     @Test func stoppingOneFileThenRetrying() async throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("squish-tests-retry-\(UUID().uuidString.prefix(6))")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
