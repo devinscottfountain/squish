@@ -7,6 +7,18 @@
     <language>en</language>
 <!-- items -->
     <item>
+      <title>Version 0.2.3</title>
+      <pubDate>Thu, 22 Oct 2026 14:53:17 GMT</pubDate>
+      <sparkle:version>5</sparkle:version>
+      <sparkle:shortVersionString>0.2.3</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+      <sparkle:fullReleaseNotesLink>https://github.com/devinscottfountain/squish/releases/tag/v0.2.3</sparkle:fullReleaseNotesLink>
+      <description><![CDATA[
+<ul><li><b>Squish again.</b> After a batch finishes, you no longer need to clear the queue to run another pass. Change your settings and the button becomes <b>Squish again</b>, re-encoding the finished files. Earlier files are kept, and new ones get a numbered name.</li><li>You can also squish a single finished file again from its row (hover, or right-click), or by dropping it onto the window again.</li></ul>
+      ]]></description>
+      <enclosure url="https://github.com/devinscottfountain/squish/releases/download/v0.2.3/Squish-0.2.3.dmg" type="application/octet-stream" sparkle:edSignature="cdzhdFMJYna+BeRXxUN/o5/SFYCwllX538EIfmE+MFGUCIRmBCqHTxewS0ogNJ5o3HFtnvpAHl0Bk3CXnwYwCw==" length="42449492" />
+    </item>
+    <item>
       <title>Version 0.2.2</title>
       <pubDate>Wed, 21 Oct 2026 21:22:23 GMT</pubDate>
       <sparkle:version>4</sparkle:version>
