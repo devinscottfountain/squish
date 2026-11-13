@@ -32,7 +32,6 @@ enum Container: String, CaseIterable, Identifiable, Codable {
         }
     }
 
-    static let videoFormats: [Container] = allCases.filter { !$0.isAudioOnly }
     static let audioFormats: [Container] = allCases.filter(\.isAudioOnly)
 
     var fileExtension: String {
@@ -529,6 +528,27 @@ struct EncodeSettings: Codable, Equatable {
         case .preserve, .chromaKey: return true
         case .flatten: return false
         }
+    }
+
+    /// These settings with everything that only affects where the file goes or what it's tagged with
+    /// set to defaults. Samples and previews don't change when only those do, so they compare this.
+    /// (Samples drop metadata and faststart; `threads` changes speed, not size.)
+    var sampleKey: EncodeSettings {
+        var key = self
+        let neutral = EncodeSettings()
+        key.outputLocation = neutral.outputLocation
+        key.outputFolderPath = neutral.outputFolderPath
+        key.filenameSuffix = neutral.filenameSuffix
+        key.overwrite = neutral.overwrite
+        key.threads = neutral.threads
+        key.metaTitle = neutral.metaTitle
+        key.metaArtist = neutral.metaArtist
+        key.metaComment = neutral.metaComment
+        key.metaCopyright = neutral.metaCopyright
+        key.stripLocation = neutral.stripLocation
+        key.keepChapters = neutral.keepChapters
+        key.fastStart = neutral.fastStart
+        return key
     }
 
     /// Decodes saved settings, filling any keys added since they were saved with defaults.

@@ -53,7 +53,7 @@ struct SquishApp: App {
         }
         .windowStyle(.hiddenTitleBar)
         .windowBackgroundDragBehavior(.enabled)
-        .defaultSize(width: 1120, height: 760)
+        .defaultSize(width: 1040, height: 720)
         .commands {
             CommandGroup(replacing: .appInfo) {
                 AboutMenuItem()
@@ -74,7 +74,7 @@ struct SquishApp: App {
                     .disabled(!store.jobs.contains { $0.status == .failed || $0.status == .cancelled })
                 Button("Clear Finished") { store.clearFinished(animated: false) }
                     .keyboardShortcut("k")
-                Toggle("Play Sound When Done", isOn: Binding(get: { store.playSounds }, set: { store.playSounds = $0 }))
+                Toggle("Play Sounds", isOn: Binding(get: { store.playSounds }, set: { store.playSounds = $0 }))
                 Divider()
                 Button("Simple Mode") { store.mode = .simple }
                     .keyboardShortcut("1")

@@ -1,17 +1,31 @@
 import AppKit
 import SwiftUI
 
-/// Small, quiet touches: the finish sound, Dock progress and trackpad haptics.
+/// Small, quiet touches: sounds, Dock progress and trackpad haptics.
 @MainActor
 enum Delight {
     // MARK: Sound
 
-    private static let sound: NSSound? = {
-        guard let url = Bundle.main.url(forResource: "squish", withExtension: "wav") else { return nil }
+    /// The app's sounds, synthesized by Tools/render_sound.py: short, soft, and all in one key.
+    enum Sound: String {
+        /// A batch finished: a small rising arpeggio.
+        case finish
+        /// Files landed in the queue: one soft pluck.
+        case drop
+        /// Nothing in the batch succeeded: two low notes falling.
+        case fail
+    }
+
+    private static var players: [String: NSSound] = [:]
+    private static var alternateDrop = false
+
+    private static func player(_ name: String) -> NSSound? {
+        if let cached = players[name] { return cached }
+        guard let url = Bundle.main.url(forResource: name, withExtension: "wav") else { return nil }
         let sound = NSSound(contentsOf: url, byReference: true)
-        sound?.volume = 0.6
+        players[name] = sound
         return sound
-    }()
+    }
 
     /// Honors System Settings › Sound › "Play user interface sound effects".
     private static var systemAllowsUISounds: Bool {
@@ -19,10 +33,17 @@ enum Delight {
         return (value as? Bool) ?? ((value as? Int).map { $0 != 0 } ?? true)
     }
 
-    static func playFinishSound(enabled: Bool) {
-        guard enabled, systemAllowsUISounds, let sound else { return }
-        sound.stop()
-        sound.play()
+    static func play(_ sound: Sound, enabled: Bool) {
+        guard enabled, systemAllowsUISounds else { return }
+        var name = sound.rawValue
+        if sound == .drop {
+            // Two pitches take turns, so several drops in a row don't sound mechanical.
+            if alternateDrop { name = "drop2" }
+            alternateDrop.toggle()
+        }
+        guard let player = player(name) else { return }
+        player.stop()
+        player.play()
     }
 
     // MARK: Dock

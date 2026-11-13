@@ -18,7 +18,8 @@ struct PreviewSheet: View {
     @State private var errorText: String?
     @State private var zoom: Zoom = .fit
     @State private var task: Task<Void, Never>?
-    @State private var process: FFmpegProcess?
+    /// The sample encode and the reference frame, which run side by side.
+    @State private var processes: [FFmpegProcess] = []
     @State private var temporaryFiles: [URL] = []
 
     private enum Zoom: String { case fit = "Fit", actual = "100%" }
@@ -49,10 +50,10 @@ struct PreviewSheet: View {
             }
             regenerate()
         }
-        .onChange(of: store.effectiveSettings(for: job)) { regenerate() }
+        .onChange(of: store.effectiveSettings(for: job).sampleKey) { regenerate() }
         .onDisappear {
             task?.cancel()
-            process?.cancel()
+            for process in processes { process.cancel() }
             for url in temporaryFiles { try? FileManager.default.removeItem(at: url) }
         }
     }
@@ -87,7 +88,7 @@ struct PreviewSheet: View {
             if let before, let after {
                 if zoom == .fit {
                     GeometryReader { geo in
-                        comparison(before: before, after: after, size: fitted(after.size, in: geo.size))
+                        comparison(before: before, after: after, size: BeforeAfter.fitted(after.size, in: geo.size))
                             .frame(width: geo.size.width, height: geo.size.height)
                     }
                 } else {
@@ -124,16 +125,14 @@ struct PreviewSheet: View {
     /// Both frames stacked at the same size; "before" is revealed left of the divider.
     private func comparison(before: NSImage, after: NSImage, size: CGSize) -> some View {
         ZStack(alignment: .topLeading) {
-            image(after, size: size)
-            image(before, size: size)
-                .mask(alignment: .leading) {
-                    Rectangle().frame(width: size.width * split)
-                }
+            // Neutral inset hairline (pure white at 10% on this dark UI) for consistent depth.
+            SplitImageStack(before: before, after: after, size: size, split: split,
+                            interpolation: zoom == .actual ? .none : .high, outlined: true)
             divider(height: size.height).offset(x: size.width * split - 14)
             HStack {
-                tag("Original")
+                ScrimTag("Original")
                 Spacer()
-                tag("Squished")
+                ScrimTag("Squished")
             }
             .padding(10)
             .frame(width: size.width)
@@ -156,15 +155,6 @@ struct PreviewSheet: View {
         }
     }
 
-    private func image(_ image: NSImage, size: CGSize) -> some View {
-        Image(nsImage: image)
-            .resizable()
-            .interpolation(zoom == .actual ? .none : .high)
-            .frame(width: size.width, height: size.height)
-            // Neutral inset hairline (pure white at 10% on this dark UI) for consistent depth.
-            .overlay(Rectangle().strokeBorder(Theme.imageOutline, lineWidth: 1))
-    }
-
     private func divider(height: CGFloat) -> some View {
         ZStack {
             Rectangle().fill(.white).frame(width: 2, height: height).shadow(color: .black.opacity(0.5), radius: 3)
@@ -176,17 +166,6 @@ struct PreviewSheet: View {
                 .shadow(color: .black.opacity(0.35), radius: 6, y: 2)
         }
         .frame(width: 28, height: height)
-    }
-
-    private func tag(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(Theme.text)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 4)
-            // Glass would take on the frame's colors; a dark scrim reads over anything.
-            .background(Capsule().fill(.black.opacity(0.55)))
-            .overlay(Capsule().strokeBorder(.white.opacity(0.15)))
     }
 
     private var scrubber: some View {
@@ -245,15 +224,9 @@ struct PreviewSheet: View {
         return Int64(Double(sampleBytes) * full.expectedDuration / sampleDuration)
     }
 
-    private func fitted(_ image: CGSize, in box: CGSize) -> CGSize {
-        guard image.width > 0, image.height > 0 else { return box }
-        let scale = min(box.width / image.width, box.height / image.height)
-        return CGSize(width: image.width * scale, height: image.height * scale)
-    }
-
     private func regenerate() {
         task?.cancel()
-        process?.cancel()
+        for process in processes { process.cancel() }
         guard let media = job.media, let encoder = store.sampleEncoder else {
             errorText = "Squish needs ffmpeg and a readable file to preview."
             return
@@ -261,7 +234,8 @@ struct PreviewSheet: View {
         let settings = store.effectiveSettings(for: job)
         let start = position
         let proc = FFmpegProcess()
-        process = proc
+        let referenceProc = FFmpegProcess()
+        processes = [proc, referenceProc]
         isWorking = true
         errorText = nil
 
@@ -269,16 +243,26 @@ struct PreviewSheet: View {
             do {
                 let kept = SampleEncoder.keptRange(settings, media: media)
                 let length = max(0.3, min(sampleLength, max(kept.upperBound, media.duration) - start))
-                let sample = try await encoder.encode(input: job.input, media: media, settings: settings,
-                                                      start: start, length: length, process: proc)
-                temporaryFiles.append(sample.output)
                 let speed = min(max(settings.playbackSpeed, 0.25), 4)
-                let outTime = min(1, sample.outDuration / 2)
+                let outTime = min(1, encoder.outDuration(input: job.input, media: media, settings: settings,
+                                                         start: start, length: length) / 2)
+                // The uncompressed frame doesn't need the sample, so it renders at the same time.
+                async let reference = encoder.referenceFrame(input: job.input, media: media, settings: settings,
+                                                             sourceTime: start + outTime * speed, process: referenceProc)
+                let sample: SampleEncoder.Sample
+                do {
+                    sample = try await encoder.encode(input: job.input, media: media, settings: settings,
+                                                      start: start, length: length, process: proc)
+                } catch {
+                    referenceProc.cancel()
+                    if let url = try? await reference { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+                    throw error
+                }
+                temporaryFiles.append(sample.output)
+                let beforeURL = try await reference
+                temporaryFiles.append(beforeURL.deletingLastPathComponent())
                 let afterURL = try await encoder.frame(from: sample.output, at: outTime, settings: settings, process: proc)
                 temporaryFiles.append(afterURL)
-                let beforeURL = try await encoder.referenceFrame(input: job.input, media: media, settings: settings,
-                                                                 sourceTime: start + outTime * speed, process: proc)
-                temporaryFiles.append(beforeURL.deletingLastPathComponent())
                 guard !Task.isCancelled else { return }
                 before = NSImage(contentsOf: beforeURL)
                 after = NSImage(contentsOf: afterURL)

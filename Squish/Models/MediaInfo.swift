@@ -2,7 +2,6 @@ import Foundation
 
 struct MediaInfo: Equatable, Sendable {
     var duration: Double
-    var sizeBytes: Int64
     var bitRate: Int
     /// Display size, with rotation metadata already applied.
     var width: Int
@@ -48,7 +47,12 @@ enum MediaProbe {
         guard result.status == 0 else {
             throw ProbeError(message: String(decoding: result.stderr, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines))
         }
-        let output = try JSONDecoder().decode(ProbeOutput.self, from: result.stdout)
+        return try parse(result.stdout)
+    }
+
+    /// Reads ffprobe's `-show_format -show_streams` JSON.
+    static func parse(_ data: Data) throws -> MediaInfo {
+        let output = try JSONDecoder().decode(ProbeOutput.self, from: data)
         let streams = output.streams ?? []
         guard let video = streams.first(where: { $0.codec_type == "video" && $0.disposition?["attached_pic"] != 1 }) else {
             throw ProbeError(message: "No video stream found.")
@@ -78,7 +82,6 @@ enum MediaProbe {
 
         return MediaInfo(
             duration: duration,
-            sizeBytes: Int64(output.format?.size ?? "") ?? 0,
             bitRate: Int(output.format?.bit_rate ?? "") ?? 0,
             width: width,
             height: height,
@@ -131,7 +134,6 @@ private struct ProbeOutput: Decodable {
 
     struct FormatInfo: Decodable {
         var duration: String?
-        var size: String?
         var bit_rate: String?
     }
 
@@ -148,41 +150,110 @@ enum ProcessRunner {
         var stderr: Data
     }
 
-    private final class Box: @unchecked Sendable {
-        var data = Data()
-    }
-
     /// Runs a short-lived process to completion and collects its output.
     static func run(_ executable: URL, _ arguments: [String]) async throws -> Output {
-        try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                let process = Process()
-                process.executableURL = executable
-                process.arguments = arguments
-                let out = Pipe()
-                let err = Pipe()
-                process.standardOutput = out
-                process.standardError = err
-                process.standardInput = FileHandle.nullDevice
-                do {
-                    try process.run()
-                } catch {
-                    continuation.resume(throwing: error)
-                    return
+        let process = Process()
+        process.executableURL = executable
+        process.arguments = arguments
+        let out = Buffer()
+        let err = Buffer()
+        let status = try await launch(process, stdout: { out.append($0) }, stderr: { err.append($0) })
+        return Output(status: status, stdout: out.data, stderr: err.data)
+    }
+
+    /// Starts `process` with its output piped to the two callbacks and returns its exit status once it
+    /// has exited and both pipes are drained. Nothing blocks a thread while it waits: GCD only has 64,
+    /// and a folder of probes each parked on a read used to use them all up and hang.
+    static func launch(_ process: Process,
+                       stdout: @escaping @Sendable (Data) -> Void,
+                       stderr: @escaping @Sendable (Data) -> Void,
+                       onLaunch: (Process) -> Void = { _ in }) async throws -> Int32 {
+        let out = Pipe()
+        let err = Pipe()
+        process.standardOutput = out
+        process.standardError = err
+        process.standardInput = FileHandle.nullDevice
+        return try await withCheckedThrowingContinuation { continuation in
+            let finish = Completion(process: process, continuation: continuation)
+            out.fileHandleForReading.readabilityHandler = { handle in
+                let chunk = handle.availableData
+                if chunk.isEmpty {
+                    handle.readabilityHandler = nil
+                    finish.outputClosed()
+                } else {
+                    stdout(chunk)
                 }
-                let errBox = Box()
-                let group = DispatchGroup()
-                group.enter()
-                DispatchQueue.global().async {
-                    errBox.data = err.fileHandleForReading.readDataToEndOfFile()
-                    group.leave()
+            }
+            err.fileHandleForReading.readabilityHandler = { handle in
+                let chunk = handle.availableData
+                if chunk.isEmpty {
+                    handle.readabilityHandler = nil
+                    finish.outputClosed()
+                } else {
+                    stderr(chunk)
                 }
-                let outData = out.fileHandleForReading.readDataToEndOfFile()
-                group.wait()
-                process.waitUntilExit()
-                continuation.resume(returning: Output(status: process.terminationStatus, stdout: outData, stderr: errBox.data))
+            }
+            process.terminationHandler = { finish.exited($0.terminationStatus) }
+            do {
+                try process.run()
+                onLaunch(process)
+            } catch {
+                out.fileHandleForReading.readabilityHandler = nil
+                err.fileHandleForReading.readabilityHandler = nil
+                process.terminationHandler = nil
+                finish.fail(error)
             }
         }
+    }
+
+    /// Resumes once, after the exit and both end-of-files, in whatever order they arrive.
+    private final class Completion: @unchecked Sendable {
+        private let lock = NSLock()
+        private var openPipes = 2
+        private var status: Int32?
+        // Held so the process outlives its handlers.
+        private var process: Process?
+        private var continuation: CheckedContinuation<Int32, Error>?
+
+        init(process: Process, continuation: CheckedContinuation<Int32, Error>) {
+            self.process = process
+            self.continuation = continuation
+        }
+
+        func outputClosed() {
+            resumeIfDone { openPipes -= 1 }
+        }
+
+        func exited(_ code: Int32) {
+            resumeIfDone { status = code }
+        }
+
+        func fail(_ error: Error) {
+            let pending = lock.withLock { () -> CheckedContinuation<Int32, Error>? in
+                defer { continuation = nil; process = nil }
+                return continuation
+            }
+            pending?.resume(throwing: error)
+        }
+
+        private func resumeIfDone(_ update: () -> Void) {
+            let ready = lock.withLock { () -> (CheckedContinuation<Int32, Error>, Int32)? in
+                update()
+                guard openPipes <= 0, let status, let continuation else { return nil }
+                self.continuation = nil
+                process = nil
+                return (continuation, status)
+            }
+            if let ready { ready.0.resume(returning: ready.1) }
+        }
+    }
+
+    private final class Buffer: @unchecked Sendable {
+        private let lock = NSLock()
+        private var storage = Data()
+
+        func append(_ chunk: Data) { lock.withLock { storage.append(chunk) } }
+        var data: Data { lock.withLock { storage } }
     }
 }
 

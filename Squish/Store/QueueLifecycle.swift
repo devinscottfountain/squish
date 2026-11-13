@@ -22,9 +22,13 @@ extension QueueStore {
         return dir.appendingPathComponent("queue.json")
     }
 
+    /// Queue writes happen here, in order, so a big queue's file write never holds up the main thread.
+    private static let saveIO = DispatchQueue(label: "Squish.saveQueue", qos: .utility)
+
     // MARK: Queue persistence
 
-    func saveQueue() {
+    /// - Parameter waits: true to finish writing before returning (quitting), after any earlier saves.
+    func saveQueue(waits: Bool = false) {
         guard persistsState else { return }
         let saved = jobs.map { job -> SavedJob in
             let state: SavedJob.State = switch job.status {
@@ -38,9 +42,10 @@ extension QueueStore {
                             outputSize: job.outputSize, message: job.message,
                             settings: job.customSettings.flatMap { try? JSONEncoder().encode($0) })
         }
-        if let data = try? JSONEncoder().encode(saved) {
-            try? data.write(to: Self.queueFile, options: .atomic)
-        }
+        guard let data = try? JSONEncoder().encode(saved) else { return }
+        let file = Self.queueFile
+        let write: @Sendable () -> Void = { try? data.write(to: file, options: .atomic) }
+        if waits { Self.saveIO.sync(execute: write) } else { Self.saveIO.async(execute: write) }
     }
 
     /// Brings back the last session's queue. Files that moved or were deleted are skipped.
@@ -48,9 +53,11 @@ extension QueueStore {
         guard let data = try? Data(contentsOf: Self.queueFile),
               let saved = try? JSONDecoder().decode([SavedJob].self, from: data) else { return }
         let fm = FileManager.default
+        var known = Set(jobs.map(\.input.path))
+        var restored: [EncodeJob] = []
         for item in saved where fm.fileExists(atPath: item.input) {
             let input = URL(fileURLWithPath: item.input)
-            guard !jobs.contains(where: { $0.input == input }) else { continue }
+            guard known.insert(input.path).inserted else { continue }
             let job = EncodeJob(input: input)
             job.customSettings = item.settings.flatMap(EncodeSettings.decodeLenient)
             let output = item.output.map { URL(fileURLWithPath: $0) }
@@ -75,8 +82,9 @@ extension QueueStore {
             case .ready, .done:
                 job.status = .probing
             }
-            jobs.append(job)
+            restored.append(job)
         }
+        jobs.append(contentsOf: restored)
     }
 
     // MARK: Staying awake
@@ -119,8 +127,8 @@ extension QueueStore {
         }
 
         endKeepAwake()
-        Delight.setDockProgress(nil)
-        saveQueue()
+        clearDockProgress()
+        saveQueue(waits: true)
         persist()
     }
 }

@@ -47,16 +47,16 @@ private struct GeneralSettings: View {
             }
 
             Section {
-                Toggle("Play the finish sound", isOn: $store.playSounds)
+                Toggle("Play sounds", isOn: $store.playSounds)
                 HStack {
-                    Text("Plays once per batch and follows your Mac's \u{201C}Play user interface sound effects\u{201D} setting.")
+                    Text("A chime when a batch finishes and a soft pluck when you drop files in. Follows your Mac's \u{201C}Play user interface sound effects\u{201D} setting.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                     Spacer()
-                    Button("Preview") { Delight.playFinishSound(enabled: true) }
+                    Button("Preview") { Delight.play(.finish, enabled: true) }
                 }
             } header: {
-                Text("When a batch finishes")
+                Text("Sounds")
             }
 
             Section {

@@ -50,19 +50,25 @@ final class FFmpegEnvironment {
             return
         }
         ffmpeg = found
-        if let lipo = try? await ProcessRunner.run(URL(fileURLWithPath: "/usr/bin/lipo"), ["-archs", found.path]) {
-            let archs = String(decoding: lipo.stdout, as: UTF8.self)
-            isTranslated = !archs.isEmpty && !archs.contains("arm64")
-        }
         let probe = found.deletingLastPathComponent().appendingPathComponent("ffprobe")
         ffprobe = fm.isExecutableFile(atPath: probe.path) ? probe : nil
 
-        if let result = try? await ProcessRunner.run(found, ["-hide_banner", "-version"]) {
+        // Four quick, independent checks: run them together rather than one after another.
+        async let lipoRun = try? ProcessRunner.run(URL(fileURLWithPath: "/usr/bin/lipo"), ["-archs", found.path])
+        async let versionRun = try? ProcessRunner.run(found, ["-hide_banner", "-version"])
+        async let encodersRun = try? ProcessRunner.run(found, ["-hide_banner", "-encoders"])
+        async let filtersRun = try? ProcessRunner.run(found, ["-hide_banner", "-filters"])
+
+        if let lipo = await lipoRun {
+            let archs = String(decoding: lipo.stdout, as: UTF8.self)
+            isTranslated = !archs.isEmpty && !archs.contains("arm64")
+        }
+        if let result = await versionRun {
             let firstLine = String(decoding: result.stdout, as: UTF8.self).split(separator: "\n").first ?? ""
             let words = firstLine.split(separator: " ")
             if words.count > 2 { version = String(words[2].prefix(14)) }
         }
-        if let result = try? await ProcessRunner.run(found, ["-hide_banner", "-encoders"]) {
+        if let result = await encodersRun {
             var names = Set<String>()
             for line in String(decoding: result.stdout, as: UTF8.self).split(separator: "\n") {
                 let words = line.split(separator: " ", omittingEmptySubsequences: true)
@@ -71,7 +77,7 @@ final class FFmpegEnvironment {
             }
             encoders = names
         }
-        if let result = try? await ProcessRunner.run(found, ["-hide_banner", "-filters"]) {
+        if let result = await filtersRun {
             // Lines look like " TS colorspace  V->V  Convert between colorspaces."
             var names = Set<String>()
             for line in String(decoding: result.stdout, as: UTF8.self).split(separator: "\n") {

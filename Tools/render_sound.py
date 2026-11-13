@@ -1,234 +1,135 @@
-"""Synthesizes Squish's finish sound from layers, the way a sound designer would stack samples.
+"""Synthesizes Squish's sounds. Same recipe as ClientOS's UI sounds, baked to WAV files.
 
-Usage: python3 Tools/render_sound.py Squish/Resources/squish.wav
+Usage: python3 Tools/render_sound.py Squish/Resources
 
-The sound tells a tiny story in ~0.5 s: something soft gets pressed (squish), air escapes,
-it pops, and a small chime says "done". Each layer covers one part of the spectrum or one
-moment in time, so together they read as one rich sound rather than a beep:
+Each sound is a few short "voices": a sine or triangle note with a fast attack and a short
+exponential decay, so it sounds like something struck rather than a beep. Everything sits in
+C major around C5-C6, so the sounds never clash; success rises and failure falls. One gentle
+lowpass over the mix takes the click edge off the attacks.
 
-  layer      when (s)   range         job
-  ---------  ---------  ------------  -------------------------------------------------
-  thump      0.00–0.09  70–120 Hz     weight; felt more than heard
-  squish     0.00–0.13  170–430 Hz    the main squash tone, two slightly detuned voices
-  squelch    0.00–0.11  3.2→0.9 kHz   filtered noise sweeping down: the "wet" texture
-  click      0.105      4–10 kHz      2 ms transient so the pop has a crisp edge
-  pop        0.105–0.17 620→1520 Hz   the bubble: an upward chirp
-  chime      0.12–0.50  1.76/2.64 kHz soft bell fifth, panned apart, so it lands as "done"
-  room       whole      —             short early reflections so it doesn't sound dry
+  file         when                         what
+  -----------  ---------------------------  --------------------------------------------------
+  finish.wav   a batch finished             triangle arpeggio E5 G5 C6, 60 ms apart, plus a
+                                            faint octave shimmer on the last note
+  drop.wav     files landed in the queue    one soft triangle pluck gliding 520 -> 300 Hz
+  drop2.wav    (alternate, a tone higher)   so quick repeated drops don't sound robotic
+  fail.wav     a file failed                triangle F4 then C4: low, soft, a falling fourth
 
-Pure standard library; the noise is seeded, so the output is identical on every run.
+NSSound plays at system volume, so the quietness is baked in: peaks sit well under a macOS
+system sound. Pure standard library and no randomness, so the output is identical every run.
 """
 import math
-import random
 import struct
 import sys
 import wave
+from pathlib import Path
 
-RATE = 44100
-LENGTH = 0.52  # seconds
-N = int(RATE * LENGTH)
+RATE = 48000
 TAU = 2 * math.pi
+LOWPASS_HZ = 6500
+TAIL = 0.03  # trailing silence, so the last decay is never clipped by the player
 
 
-def env(t, attack, decay):
-    """Linear attack, exponential decay. Zero before t = 0."""
-    if t < 0:
-        return 0.0
-    if t < attack:
-        return t / attack
-    return math.exp(-(t - attack) / decay)
+def voice(wave_shape, freq, at, dur, peak, tau, attack=0.001, to=None, glide=0.05):
+    """One note: `freq` Hz starting `at` seconds, optionally gliding to `to` over `glide` s."""
+    return dict(shape=wave_shape, freq=freq, at=at, dur=dur, peak=peak, tau=tau,
+                attack=attack, to=to, glide=glide)
 
 
-def glide(start, end, t, duration):
-    """Exponential pitch glide from start to end Hz over duration seconds."""
-    p = min(max(t / duration, 0.0), 1.0)
-    return start * (end / start) ** p
+def transpose(voices, ratio):
+    return [dict(v, freq=v["freq"] * ratio, to=v["to"] * ratio if v["to"] else None) for v in voices]
 
 
-class Bandpass:
-    """RBJ-cookbook biquad band-pass whose center can move every sample."""
+E5, G5, C6, C7 = 659.25, 783.99, 1046.50, 2093.00
+F4, C4 = 349.23, 261.63
+WHOLE_TONE = 2 ** (2 / 12)
 
-    def __init__(self, q):
-        self.q = q
-        self.x1 = self.x2 = self.y1 = self.y2 = 0.0
+FINISH = [
+    voice("triangle", E5, 0.00, 0.12, 0.30, 0.040),
+    voice("triangle", G5, 0.06, 0.12, 0.30, 0.040),
+    voice("triangle", C6, 0.12, 0.26, 0.30, 0.075),
+    voice("sine", C7, 0.12, 0.26, 0.07, 0.085),  # shimmer: an octave above the last note
+]
+DROP = [voice("triangle", 520, 0.0, 0.11, 0.50, 0.025, to=300, glide=0.05)]
+FAIL = [
+    voice("triangle", F4, 0.00, 0.16, 0.35, 0.050),
+    voice("triangle", C4, 0.09, 0.22, 0.35, 0.070),
+]
 
-    def __call__(self, x, center):
-        w = TAU * center / RATE
-        alpha = math.sin(w) / (2 * self.q)
-        cos_w = math.cos(w)
-        a0 = 1 + alpha
-        b0, b2 = alpha / a0, -alpha / a0
-        a1, a2 = -2 * cos_w / a0, (1 - alpha) / a0
-        y = b0 * x + b2 * self.x2 - a1 * self.y1 - a2 * self.y2
-        self.x2, self.x1 = self.x1, x
-        self.y2, self.y1 = self.y1, y
-        return y
-
-
-class Highpass:
-    """One-pole high-pass, enough to take the body out of the click."""
-
-    def __init__(self, cutoff):
-        rc = 1 / (TAU * cutoff)
-        self.a = rc / (rc + 1 / RATE)
-        self.prev_x = self.prev_y = 0.0
-
-    def __call__(self, x):
-        y = self.a * (self.prev_y + x - self.prev_x)
-        self.prev_x, self.prev_y = x, y
-        return y
+# name -> (voices, peak level of the finished file in dBFS)
+SOUNDS = {
+    "finish": (FINISH, -15.0),
+    "drop": (DROP, -20.0),
+    "drop2": (transpose(DROP, WHOLE_TONE), -20.0),
+    "fail": (FAIL, -17.0),
+}
 
 
-def oscillator():
-    """Phase-accumulating sine so pitch glides stay smooth."""
-    phase = [0.0]
+def render(voices):
+    length = max(v["at"] + v["dur"] for v in voices) + TAIL
+    out = [0.0] * int(RATE * length)
+    for v in voices:
+        start = int(v["at"] * RATE)
+        count = int(v["dur"] * RATE)
+        release = int(0.006 * RATE)  # short fade at the note's end, so stopping it never clicks
+        phase = 0.0
+        for i in range(count):
+            t = i / RATE
+            if v["to"] and t < v["glide"]:
+                freq = v["freq"] * (v["to"] / v["freq"]) ** (t / v["glide"])
+            else:
+                freq = v["to"] or v["freq"]
+            # Integrating the phase keeps a glide smooth; sin(2*pi*f(t)*t) would chirp wrong.
+            phase += TAU * freq / RATE
+            if v["shape"] == "sine":
+                sample = math.sin(phase)
+            else:
+                sample = 2 / math.pi * math.asin(math.sin(phase))
+            if t < v["attack"]:
+                env = v["peak"] * t / v["attack"]
+            else:
+                env = v["peak"] * math.exp(-(t - v["attack"]) / v["tau"])
+            if count - i < release:
+                env *= (count - i) / release
+            out[start + i] += sample * env
+    return lowpass(out)
 
-    def step(freq):
-        phase[0] += TAU * freq / RATE
-        return math.sin(phase[0])
 
-    return step
-
-
-# ---------------------------------------------------------------------------
-# Layers. Each returns a list of (left, right) samples.
-# ---------------------------------------------------------------------------
-
-def thump():
-    osc = oscillator()
+def lowpass(samples):
+    """Gentle biquad lowpass (Q 0.5): most of the 'warm, not cheap' character."""
+    w = TAU * LOWPASS_HZ / RATE
+    alpha = math.sin(w) / (2 * 0.5)
+    cos = math.cos(w)
+    a0 = 1 + alpha
+    b0, b1, b2 = (1 - cos) / 2 / a0, (1 - cos) / a0, (1 - cos) / 2 / a0
+    a1, a2 = -2 * cos / a0, (1 - alpha) / a0
+    x1 = x2 = y1 = y2 = 0.0
     out = []
-    for i in range(N):
-        t = i / RATE
-        s = osc(glide(120, 70, t, 0.08)) * env(t, 0.004, 0.03)
-        out.append((s, s))
+    for x in samples:
+        y = b0 * x + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2
+        x2, x1, y2, y1 = x1, x, y1, y
+        out.append(y)
     return out
 
 
-def squish():
-    # Two voices 9 cents apart give a soft chorus; a touch of 2nd harmonic adds roundness.
-    a, b = oscillator(), oscillator()
-    detune = 2 ** (9 / 1200)
-    out = []
-    for i in range(N):
-        t = i / RATE
-        f = glide(430, 170, t, 0.12)
-        va = a(f)
-        vb = b(f * detune)
-        tone = 0.5 * (va + vb) + 0.15 * math.sin(2 * math.asin(max(-1, min(1, va))))
-        s = tone * env(t, 0.006, 0.045)
-        out.append((s * 1.0, s * 0.9))  # a hair left of center
-    return out
+def write(path, samples, peak_db):
+    peak = max(abs(s) for s in samples)
+    gain = 10 ** (peak_db / 20) / peak
+    frames = b"".join(struct.pack("<h", round(s * gain * 32767)) for s in samples)
+    with wave.open(str(path), "wb") as f:
+        f.setnchannels(1)
+        f.setsampwidth(2)
+        f.setframerate(RATE)
+        f.writeframes(frames)
+    print(f"  {path.name}: {len(samples) / RATE * 1000:.0f} ms, peak {peak_db:.0f} dBFS, {len(frames) // 1024} KB")
 
 
-def squelch():
-    rng = random.Random(7)
-    bp = Bandpass(q=3.5)
-    out = []
-    for i in range(N):
-        t = i / RATE
-        center = glide(3200, 900, t, 0.1)
-        s = bp(rng.uniform(-1, 1), center) * env(t, 0.003, 0.032)
-        out.append((s * 0.85, s))  # a hair right, opposite the squish
-    return out
-
-
-def click(at=0.105):
-    rng = random.Random(11)
-    hp = Highpass(4000)
-    out = []
-    for i in range(N):
-        t = i / RATE - at
-        s = hp(rng.uniform(-1, 1)) * env(t, 0.0003, 0.0018) if t >= 0 else 0.0
-        out.append((s, s))
-    return out
-
-
-def pop(at=0.105):
-    osc = oscillator()
-    out = []
-    for i in range(N):
-        t = i / RATE - at
-        if t < 0:
-            out.append((0.0, 0.0))
-            continue
-        s = osc(620 + 900 * min(t / 0.03, 1.0)) * env(t, 0.002, 0.026)
-        out.append((s, s))
-    return out
-
-
-def chime(at=0.12):
-    # A6 and E7: a perfect fifth reads as resolved and friendly. Slight inharmonic partial
-    # on each gives a soft bell rather than a pure test tone. Panned apart for width.
-    voices = [
-        (1760.0, 0.75, 0.20),   # freq, pan (0 = left, 1 = right), decay
-        (2637.0, 0.25, 0.15),
-    ]
-    oscs = [(oscillator(), oscillator()) for _ in voices]
-    out = []
-    for i in range(N):
-        t = i / RATE - at
-        left = right = 0.0
-        if t >= 0:
-            for (freq, pan, decay), (fundamental, partial) in zip(voices, oscs):
-                s = (fundamental(freq) + 0.25 * partial(freq * 2.76)) * env(t, 0.004, decay)
-                left += s * math.cos(pan * math.pi / 2)
-                right += s * math.sin(pan * math.pi / 2)
-        out.append((left, right))
-    return out
-
-
-# ---------------------------------------------------------------------------
-# Mix
-# ---------------------------------------------------------------------------
-
-def add(mix, layer, gain):
-    for i, (l, r) in enumerate(layer):
-        mix[i][0] += l * gain
-        mix[i][1] += r * gain
-
-
-def room(mix, wet=0.14):
-    """A few early reflections, offset per channel so the tail feels wide."""
-    taps = [(0.011, 0.013, 0.55), (0.019, 0.023, 0.38), (0.031, 0.029, 0.25), (0.043, 0.047, 0.15)]
-    dry = [list(s) for s in mix]
-    for dl, dr, gain in taps:
-        nl, nr = int(dl * RATE), int(dr * RATE)
-        for i in range(N):
-            if i >= nl:
-                mix[i][0] += dry[i - nl][1] * gain * wet  # cross-feed adds width
-            if i >= nr:
-                mix[i][1] += dry[i - nr][0] * gain * wet
-
-
-def render():
-    mix = [[0.0, 0.0] for _ in range(N)]
-    add(mix, thump(), 0.30)
-    add(mix, squish(), 0.30)
-    add(mix, squelch(), 0.55)   # band-passed noise is quiet, so it needs more gain
-    add(mix, click(), 0.10)
-    add(mix, pop(), 0.20)
-    add(mix, chime(), 0.07)     # felt as a glint, not a melody
-    room(mix)
-
-    # Gentle tanh limiter, normalize to a polite peak, then a short fade so nothing clicks.
-    for s in mix:
-        s[0], s[1] = math.tanh(s[0] * 1.4), math.tanh(s[1] * 1.4)
-    peak = max(max(abs(l), abs(r)) for l, r in mix) or 1.0
-    target = 10 ** (-9 / 20)  # −9 dBFS
-    for i, s in enumerate(mix):
-        fade = min(1.0, (LENGTH - i / RATE) / 0.03)
-        s[0] = s[0] / peak * target * fade
-        s[1] = s[1] / peak * target * fade
-    return mix
-
-
-def main(path):
-    with wave.open(path, "wb") as out:
-        out.setnchannels(2)
-        out.setsampwidth(2)
-        out.setframerate(RATE)
-        out.writeframes(b"".join(struct.pack("<hh", int(l * 32767), int(r * 32767)) for l, r in render()))
+def main():
+    folder = Path(sys.argv[1] if len(sys.argv) > 1 else "Squish/Resources")
+    folder.mkdir(parents=True, exist_ok=True)
+    for name, (voices, peak_db) in SOUNDS.items():
+        write(folder / f"{name}.wav", render(voices), peak_db)
 
 
 if __name__ == "__main__":
-    main(sys.argv[1])
+    main()

@@ -1,16 +1,37 @@
 import SwiftUI
 
+/// A drop shadow under a floating glass surface.
+struct GlassShadow {
+    var opacity: Double
+    var radius: CGFloat
+    var y: CGFloat
+
+    /// The two big cards.
+    static let card = GlassShadow(opacity: 0.25, radius: 20, y: 10)
+    /// Toolbar pills.
+    static let pill = GlassShadow(opacity: 0.3, radius: 16, y: 8)
+}
+
 extension View {
     /// Frosted glass surface. Liquid Glass on macOS 26, material plus a lit edge before that.
+    /// `shadow` lifts it off the window. Liquid Glass brings its own, so it only applies before 26,
+    /// and there it's cast by the background shape alone: a shadow on the whole view would be
+    /// worked out from the live content on every redraw.
     @ViewBuilder
-    func glass<S: InsettableShape>(in shape: S, tint: Color? = nil, interactive: Bool = false) -> some View {
+    func glass<S: InsettableShape>(in shape: S, tint: Color? = nil, interactive: Bool = false,
+                                   shadow: GlassShadow? = nil) -> some View {
         if #available(macOS 26.0, *) {
             self.glassEffect(liquidGlass(tint: tint, interactive: interactive), in: shape)
         } else {
             self
                 .background {
                     ZStack {
-                        shape.fill(.ultraThinMaterial)
+                        if let shadow {
+                            shape.fill(.ultraThinMaterial)
+                                .shadow(color: .black.opacity(shadow.opacity), radius: shadow.radius, y: shadow.y)
+                        } else {
+                            shape.fill(.ultraThinMaterial)
+                        }
                         if let tint { shape.fill(tint.opacity(0.85)) }
                     }
                 }
@@ -34,8 +55,7 @@ struct Card<Content: View>: View {
         let shape = RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
         content
             .clipShape(shape)
-            .glass(in: shape)
-            .shadow(color: .black.opacity(0.25), radius: 20, y: 10)
+            .glass(in: shape, shadow: .card)
     }
 }
 
@@ -52,29 +72,30 @@ struct PillSegmented<T: Hashable>: View {
         HStack(spacing: 2) {
             ForEach(options, id: \.self) { option in
                 let selected = option == selection
-                Text(label(option))
-                    .font(.system(size: compact ? 11 : 12.5, weight: .medium))
-                    .foregroundStyle(selected ? Theme.text : Theme.secondary)
-                    .lineLimit(1)
-                    .padding(.horizontal, compact ? 8 : 12)
-                    .padding(.vertical, compact ? 4 : 6)
-                    .frame(maxWidth: stretch ? .infinity : nil)
-                    .background {
-                        if selected {
-                            Capsule()
-                                .fill(Theme.knob)
-                                .shadow(color: .black.opacity(0.3), radius: 3, y: 1)
-                                .matchedGeometryEffect(id: "selection", in: namespace)
+                // Real buttons, so Tab reaches each segment. No press scale: the sliding knob is the feedback.
+                Button {
+                    withAnimation(Motion.out(0.22)) { selection = option }
+                } label: {
+                    Text(label(option))
+                        .font(.system(size: compact ? 11 : 12.5, weight: .medium))
+                        .foregroundStyle(selected ? Theme.text : Theme.secondary)
+                        .lineLimit(1)
+                        .padding(.horizontal, compact ? 8 : 12)
+                        .padding(.vertical, compact ? 4 : 6)
+                        .frame(maxWidth: stretch ? .infinity : nil)
+                        .background {
+                            if selected {
+                                Capsule()
+                                    .fill(Theme.knob)
+                                    .shadow(color: .black.opacity(0.3), radius: 3, y: 1)
+                                    .matchedGeometryEffect(id: "selection", in: namespace)
+                            }
                         }
-                    }
-                    .contentShape(Capsule())
-                    .onTapGesture {
-                        withAnimation(Motion.out(0.22)) { selection = option }
-                    }
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(label(option))
-                    .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
-                    .accessibilityAction { selection = option }
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(PressableStyle(isStatic: true))
+                .accessibilityLabel(label(option))
+                .accessibilityAddTraits(selected ? .isSelected : [])
             }
         }
         .padding(3)
@@ -142,7 +163,7 @@ struct SettingRow<Control: View>: View {
                     .foregroundStyle(Theme.text)
                 if let hint {
                     Text(hint)
-                        .font(.system(size: 10.5))
+                        .font(.system(size: 11))
                         .foregroundStyle(Theme.tertiary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -207,7 +228,7 @@ struct SliderRow: View {
                     Spacer()
                     Text(trailing ?? "")
                 }
-                .font(.system(size: 10.5))
+                .font(.system(size: 11))
                 .foregroundStyle(Theme.tertiary)
             }
         }
@@ -301,11 +322,32 @@ struct ChipRow<T: Hashable>: View {
                         .contentShape(Capsule())
                 }
                 .buttonStyle(PressableStyle())
+                .accessibilityAddTraits(selected ? .isSelected : [])
                 .disabled(reason != nil && !selected)
                 .opacity(reason != nil && !selected ? 0.4 : 1)
                 .help(reason.map { "Needs \($0), which this ffmpeg doesn't include" } ?? "")
             }
         }
+    }
+}
+
+struct MiniChipStyle: ButtonStyle {
+    var selected: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(selected ? Theme.onText : Theme.secondary)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 4)
+            .background(Capsule().fill(selected ? Theme.text : Theme.field))
+            // ~40 pt tall hit area without changing layout; 3 pt sideways keeps neighbors (6 pt apart) from overlapping.
+            .padding(.horizontal, 3).padding(.vertical, 9)
+            .contentShape(Rectangle())
+            .padding(.horizontal, -3).padding(.vertical, -9)
+            .scaleEffect(configuration.isPressed ? 0.96 : 1)
+            .animation(Motion.press, value: configuration.isPressed)
+            .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 
@@ -373,9 +415,10 @@ struct SettingsSection<Content: View>: View {
             }
         }
         .padding(.horizontal, 12)
-        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Theme.sectionFill))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Theme.glassEdge.opacity(0.6), lineWidth: 1))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        // Concentric with the card: card radius 22 = section radius 14 + 8 inset.
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Theme.sectionFill))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.glassEdge.opacity(0.6), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
 

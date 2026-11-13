@@ -28,8 +28,7 @@ struct PillGroup<Content: View>: View {
     var body: some View {
         HStack(spacing: 4) { content }
             .padding(6)
-            .glass(in: Capsule())
-            .shadow(color: .black.opacity(0.3), radius: 16, y: 8)
+            .glass(in: Capsule(), shadow: .pill)
     }
 }
 
@@ -53,7 +52,7 @@ struct ToolButton: View {
         .help(help)
         .accessibilityLabel(help)
         .accessibilityAddTraits(active ? .isSelected : [])
-        .onHover { hovering = $0 }
+        .onHover { h in withAnimation(Motion.hover) { hovering = h } }
     }
 }
 
@@ -89,12 +88,13 @@ struct StatsPill: View {
                     let estimate = pending.reduce(Int64(0)) { $0 + ($1.estimate ?? 0) }
                     let pendingIn = pending.reduce(Int64(0)) { $0 + $1.inputSize }
                     Image(systemName: "arrow.right").font(.system(size: 10, weight: .medium)).foregroundStyle(Theme.tertiary)
-                    Text("≈ \(Format.bytes(estimate))").foregroundStyle(Theme.green.opacity(0.75))
+                    // Estimates are secondary, so a reader can tell them from finished results (green).
+                    Text("≈ \(Format.bytes(estimate))").foregroundStyle(Theme.secondary)
                         .help("Estimated from a short sample encode with the current settings")
                     if pendingIn > 0 {
                         let saved = 1 - Double(estimate) / Double(pendingIn)
                         Text(saved >= 0 ? "−\(Int((saved * 100).rounded()))%" : "+\(Int((-saved * 100).rounded()))%")
-                            .foregroundStyle((saved >= 0 ? Theme.green : Theme.red).opacity(0.75))
+                            .foregroundStyle(saved >= 0 ? Theme.secondary : Theme.red)
                     }
                 }
             }
@@ -106,14 +106,14 @@ struct StatsPill: View {
               : "Savings show up here as files finish")
         .padding(.horizontal, 18)
         .frame(height: 50)
-        .glass(in: Capsule())
-        .shadow(color: .black.opacity(0.3), radius: 16, y: 8)
+        .glass(in: Capsule(), shadow: .pill)
     }
 }
 
 struct StartButton: View {
     @Environment(QueueStore.self) private var store
     @State private var hovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let running = store.isRunning
@@ -130,7 +130,7 @@ struct StartButton: View {
                     Image(systemName: running ? "stop.fill" : "play.fill")
                         .font(.system(size: 12, weight: .semibold))
                         .id(running)
-                        .transition(.iconSwap)
+                        .transition(.iconSwap(reduceMotion: reduceMotion))
                 }
                 ZStack {
                     Text(running ? "Stop" : (store.startRunsAgain ? "Squish again" : "Squish"))
@@ -169,7 +169,7 @@ struct StartButton: View {
         .buttonStyle(PressableStyle())
         .disabled(!enabled)
         .opacity(enabled ? 1 : 0.45)
-        .onHover { hovering = $0 }
+        .onHover { h in withAnimation(Motion.hover) { hovering = h } }
         .keyboardShortcut(.return, modifiers: .command)
         .help(running ? "Stop encoding" : (problem ?? (store.startRunsAgain
             ? "Encode the finished files again with the current settings. Earlier files are kept (⌘↩)"

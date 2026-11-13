@@ -6,7 +6,7 @@ import Testing
 
 private func media(width: Int = 1280, height: Int = 720, duration: Double = 10, alpha: Bool = false,
                    hdr: String? = nil, audio: Bool = true) -> MediaInfo {
-    MediaInfo(duration: duration, sizeBytes: 10_000_000, bitRate: 8_000_000, width: width, height: height,
+    MediaInfo(duration: duration, bitRate: 8_000_000, width: width, height: height,
               frameRate: 30, videoCodec: "h264", pixelFormat: alpha ? "yuva444p10le" : "yuv420p",
               hasAlpha: alpha, needsLibvpxDecoder: false,
               colorTransfer: hdr == nil ? "bt709" : "arib-std-b67", colorPrimaries: hdr == nil ? "bt709" : "bt2020",
@@ -635,5 +635,265 @@ struct MediaEngineFallbackTests {
         let args = CommandBuilder(settings: s, input: URL(fileURLWithPath: "/in/a.mov"), output: URL(fileURLWithPath: "/out/a.mp4"),
                                   media: nil, encoders: ["libx264", "aac"]).plan().passes[0]
         #expect(args.value(after: "-c:v") == "libx264")
+    }
+}
+
+// MARK: - Hardware decode
+
+@Suite("Automatic hardware decode")
+struct HardwareDecodeTests {
+    @Test func onForTheMediaEngineAtFullResolution() {
+        let args = plan().passes[0]
+        #expect(args.value(after: "-hwaccel") == "videotoolbox")
+        // The decoder's NV12 goes straight to the encoder.
+        #expect(args.value(after: "-vf") == "format=nv12")
+    }
+
+    @Test func untaggedColorIsStillTaggedWithHardwareDecode() {
+        var info = media()
+        info.colorPrimaries = ""
+        info.colorTransfer = ""
+        let args = plan(media: info).passes[0]
+        #expect(args.contains("-hwaccel"))
+        #expect(args.value(after: "-vf") == "setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709,format=nv12")
+    }
+
+    @Test func offWhenScaling() {
+        let args = plan { $0.resolution = .p480 }.passes[0]
+        #expect(!args.contains("-hwaccel"))
+        #expect(args.value(after: "-vf")?.hasSuffix("format=yuv420p") == true)
+        #expect(!plan(media: media(width: 641, height: 361)).passes[0].contains("-hwaccel"), "odd sizes are scaled to even")
+    }
+
+    @Test func offWithASoftwareEncoder() {
+        let args = plan { $0.useHardwareEncoder = false }.passes[0]
+        #expect(!args.contains("-hwaccel"))
+        #expect(args.value(after: "-vf") == "format=yuv420p")
+    }
+
+    @Test func offForSourcesItWasntMeasuredOn() {
+        var info = media()
+        info.videoCodec = "mpeg4"
+        #expect(!plan(media: info).passes[0].contains("-hwaccel"))
+        #expect(!plan(media: nil).passes[0].contains("-hwaccel"))
+    }
+
+    @Test func offWithAnAlphaSource() {
+        #expect(!plan(media: media(alpha: true)).passes[0].contains("-hwaccel"))
+    }
+
+    @Test func offWhenToneMappingOrTenBit() {
+        #expect(!plan({ _ in }, media: media(hdr: "HLG"), filters: ["zscale", "tonemap"]).passes[0].contains("-hwaccel"))
+        #expect(!plan { $0.videoCodec = .hevc; $0.pixelFormat = .yuv420p10le }.passes[0].contains("-hwaccel"))
+    }
+
+    @Test func theToggleStillForcesItOn() {
+        let args = plan { $0.useHardwareEncoder = false; $0.resolution = .p480; $0.useHardwareDecoder = true }.passes[0]
+        #expect(args.value(after: "-hwaccel") == "videotoolbox")
+        #expect(args.value(after: "-vf")?.hasSuffix("format=yuv420p") == true, "software encoders keep yuv420p")
+    }
+}
+
+// MARK: - Samples
+
+@Suite("Samples")
+struct SampleTests {
+    private let encoder = SampleEncoder(ffmpeg: URL(fileURLWithPath: "/usr/bin/false"), encoders: [], filters: [])
+    private let input = URL(fileURLWithPath: "/in/clip.mov")
+
+    @Test func targetSizeSampleUsesTheFullClipsBitrateInOnePass() {
+        var s = EncodeSettings()
+        s.useHardwareEncoder = false
+        s.rateControl = .targetSize
+        s.targetSizeMB = 5
+        let info = media(duration: 60)
+        let full = CommandBuilder(settings: s, input: input, output: input, media: info).plan()
+        let sample = encoder.plan(input: input, media: info, settings: s, start: 20, length: 2,
+                                  output: URL(fileURLWithPath: "/tmp/sample.mp4"))
+        #expect(full.passes.count == 2)
+        #expect(sample.passes.count == 1)
+        #expect(sample.passLogPrefix == nil)
+        #expect(sample.videoKbps == full.videoKbps)
+        #expect(sample.passes[0].value(after: "-b:v") == full.passes[1].value(after: "-b:v"))
+        #expect(sample.passes[0].value(after: "-maxrate") == full.passes[1].value(after: "-maxrate"))
+    }
+
+    @Test func samplesSkipFastStartAndTwoPass() {
+        var s = EncodeSettings()
+        s.useHardwareEncoder = false
+        s.rateControl = .bitrate
+        s.twoPass = true
+        let sample = encoder.plan(input: input, media: media(), settings: s, start: 0, length: 2,
+                                  output: URL(fileURLWithPath: "/tmp/sample.mp4"))
+        #expect(sample.passes.count == 1)
+        #expect(!sample.passes[0].contains("+faststart"))
+    }
+
+    @Test func sampleKeyIgnoresWhereAndHowTheFileIsTagged() {
+        let base = EncodeSettings()
+        var moved = base
+        moved.outputLocation = .folder
+        moved.outputFolderPath = "/Exports"
+        moved.filenameSuffix = "-small"
+        moved.metaTitle = "Holiday"
+        moved.overwrite = true
+        moved.fastStart = false
+        #expect(moved.sampleKey == base.sampleKey)
+        #expect(moved != base)
+    }
+
+    @Test(arguments: [
+        { (s: inout EncodeSettings) in s.quality = 30 },
+        { (s: inout EncodeSettings) in s.videoCodec = .hevc },
+        { (s: inout EncodeSettings) in s.resolution = .p720 },
+    ])
+    func sampleKeyFollowsWhatChangesThePicture(_ change: (inout EncodeSettings) -> Void) {
+        var changed = EncodeSettings()
+        change(&changed)
+        #expect(changed.sampleKey != EncodeSettings().sampleKey)
+    }
+}
+
+// MARK: - Process plumbing
+
+private final class Flag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+    var isSet: Bool { lock.withLock { value } }
+    func set() { lock.withLock { value = true } }
+}
+
+@Suite("Process runner")
+struct ProcessRunnerTests {
+    @Test func manyAtOnceAllFinish() async throws {
+        // More runs than GCD has threads: blocking reads used to exhaust the pool and hang at ~65.
+        let finished = Flag()
+        let runs = Task {
+            try await withThrowingTaskGroup(of: (Int, String).self) { group in
+                for i in 0..<150 {
+                    group.addTask {
+                        let r = try await ProcessRunner.run(URL(fileURLWithPath: "/bin/echo"), ["run-\(i)"])
+                        return (i, String(decoding: r.stdout, as: UTF8.self))
+                    }
+                }
+                var outputs: [Int: String] = [:]
+                for try await (i, text) in group { outputs[i] = text }
+                finished.set()
+                return outputs
+            }
+        }
+        let deadline = Date().addingTimeInterval(30)
+        while !finished.isSet && Date() < deadline { try await Task.sleep(for: .milliseconds(50)) }
+        try #require(finished.isSet, "150 concurrent runs didn't finish in 30 s")
+        let outputs = try await runs.value
+        #expect(outputs.count == 150)
+        #expect((0..<150).allSatisfy { outputs[$0] == "run-\($0)\n" })
+    }
+
+    @Test func collectsStderrAndStatus() async throws {
+        let r = try await ProcessRunner.run(URL(fileURLWithPath: "/bin/sh"), ["-c", "echo out; echo err >&2; exit 3"])
+        #expect(r.status == 3)
+        #expect(String(decoding: r.stdout, as: UTF8.self) == "out\n")
+        #expect(String(decoding: r.stderr, as: UTF8.self) == "err\n")
+    }
+
+    @Test func missingBinaryThrows() async {
+        await #expect(throws: (any Error).self) {
+            _ = try await ProcessRunner.run(URL(fileURLWithPath: "/nonexistent/tool"), [])
+        }
+    }
+}
+
+private final class Updates: @unchecked Sendable {
+    private let lock = NSLock()
+    private var items: [(Double, Double?)] = []
+    var all: [(Double, Double?)] { lock.withLock { items } }
+    func add(_ seconds: Double, _ speed: Double?) { lock.withLock { items.append((seconds, speed)) } }
+}
+
+@Suite("Progress parsing")
+struct ProgressParserTests {
+    private func parse(_ chunks: [String]) -> [(Double, Double?)] {
+        let updates = Updates()
+        let parser = ProgressParser { updates.add($0, $1) }
+        for chunk in chunks { parser.feed(Data(chunk.utf8)) }
+        return updates.all
+    }
+
+    @Test func linesSplitAcrossChunks() {
+        let u = parse(["out_time_us=150", "0000\nspeed=2.", "5x\nprogr", "ess=continue\n"])
+        #expect(u.count == 1)
+        #expect(u.first?.0 == 1.5 && u.first?.1 == 2.5)
+    }
+
+    @Test func outTimeMsIsMicrosecondsToo() {
+        // ffmpeg's out_time_ms is misnamed: it carries microseconds, like out_time_us.
+        let u = parse(["out_time_ms=3000000\nspeed=1.2x\nprogress=continue\n"])
+        #expect(u.first?.0 == 3 && u.first?.1 == 1.2)
+    }
+
+    @Test func notAvailableValuesAreSkipped() {
+        let u = parse(["out_time_us=2000000\nspeed=1x\nprogress=continue\n",
+                       "out_time_us=N/A\nspeed=N/A\nprogress=continue\n",
+                       "out_time_us=-5\nprogress=end\n"])
+        #expect(u.count == 3)
+        #expect(u[1].0 == 2, "N/A keeps the last time")
+        #expect(u[1].1 == nil)
+        #expect(u[2].0 == 0, "negative times clamp to zero")
+    }
+}
+
+// MARK: - Probe parsing
+
+@Suite("Probe parsing")
+struct ProbeParseTests {
+    private func parse(_ streams: String, format: String = #"{"duration": "10.0", "bit_rate": "4000000"}"#) throws -> MediaInfo {
+        try MediaProbe.parse(Data(#"{"streams": [\#(streams)], "format": \#(format)}"#.utf8))
+    }
+
+    private let audio = #"{"codec_type": "audio", "codec_name": "aac", "channels": 2, "sample_rate": "48000"}"#
+
+    @Test func basicFields() throws {
+        let info = try parse(#"{"codec_type": "video", "codec_name": "h264", "width": 1920, "height": 1080, "pix_fmt": "yuv420p", "avg_frame_rate": "30000/1001", "color_transfer": "bt709"}, "# + audio)
+        #expect(info.width == 1920 && info.height == 1080)
+        #expect(abs(info.frameRate - 29.97) < 0.01)
+        #expect(info.duration == 10 && info.bitRate == 4_000_000)
+        #expect(info.hasAudio && info.audioChannels == 2 && info.sampleRate == 48000)
+        #expect(!info.hasAlpha && !info.isHDR)
+    }
+
+    @Test func rotationSwapsTheDisplaySize() throws {
+        let side = try parse(#"{"codec_type": "video", "width": 1920, "height": 1080, "side_data_list": [{"side_data_type": "Display Matrix", "rotation": -90}]}"#)
+        #expect(side.width == 1080 && side.height == 1920)
+        let tag = try parse(#"{"codec_type": "video", "width": 1920, "height": 1080, "tags": {"rotate": "270"}}"#)
+        #expect(tag.width == 1080 && tag.height == 1920)
+        let flipped = try parse(#"{"codec_type": "video", "width": 1920, "height": 1080, "tags": {"rotate": "180"}}"#)
+        #expect(flipped.width == 1920)
+    }
+
+    @Test func hdrFormats() throws {
+        #expect(try parse(#"{"codec_type": "video", "color_transfer": "arib-std-b67"}"#).hdrFormat == "HLG")
+        #expect(try parse(#"{"codec_type": "video", "color_transfer": "smpte2084"}"#).hdrFormat == "HDR10")
+        let dovi = try parse(#"{"codec_type": "video", "color_transfer": "smpte2084", "side_data_list": [{"side_data_type": "DOVI configuration record"}]}"#)
+        #expect(dovi.hdrFormat == "Dolby Vision")
+    }
+
+    @Test func alphaDetection() throws {
+        #expect(try parse(#"{"codec_type": "video", "codec_name": "prores", "pix_fmt": "yuva444p10le"}"#).hasAlpha)
+        let vp9 = try parse(#"{"codec_type": "video", "codec_name": "vp9", "pix_fmt": "yuv420p", "tags": {"alpha_mode": "1"}}"#)
+        #expect(vp9.hasAlpha && vp9.needsLibvpxDecoder)
+        #expect(try !parse(#"{"codec_type": "video", "codec_name": "vp9", "pix_fmt": "yuv420p"}"#).hasAlpha)
+    }
+
+    @Test func coverArtIsSkipped() throws {
+        let info = try parse(#"{"codec_type": "video", "codec_name": "mjpeg", "width": 600, "height": 600, "disposition": {"attached_pic": 1}}, {"codec_type": "video", "codec_name": "hevc", "width": 3840, "height": 2160}"#)
+        #expect(info.videoCodec == "hevc" && info.width == 3840)
+    }
+
+    @Test func noVideoStreamThrows() {
+        #expect(throws: MediaProbe.ProbeError.self) { try parse(audio) }
+        #expect(throws: MediaProbe.ProbeError.self) {
+            try parse(#"{"codec_type": "video", "disposition": {"attached_pic": 1}}"#)
+        }
     }
 }

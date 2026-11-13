@@ -1,4 +1,5 @@
 import AppKit
+import ImageIO
 import Observation
 import SwiftUI
 import UniformTypeIdentifiers
@@ -28,6 +29,8 @@ final class EncodeJob: Identifiable {
     /// Predicted output size for the current settings.
     var estimate: Int64?
     var isEstimating = false
+    /// `EncodeSettings.sampleKey` of the settings `estimate` was made with.
+    @ObservationIgnored var estimateKey: EncodeSettings?
     /// The big-win shimmer plays once per result, not on every redraw.
     var hasCelebrated = false
     /// Before/after frames for the live thumbnail, with the settings they were made with.
@@ -94,13 +97,20 @@ final class QueueStore {
     @ObservationIgnored private var estimateTask: Task<Void, Never>?
     @ObservationIgnored private var estimatesInFlight = false
     @ObservationIgnored private var thumbnailTask: Task<Void, Never>?
-    @ObservationIgnored private var thumbnailProcess: FFmpegProcess?
+    /// The sample encode and the reference frame run side by side, so a preview can have two ffmpegs.
+    @ObservationIgnored private var thumbnailProcesses: [FFmpegProcess] = []
     @ObservationIgnored private var batch: [EncodeJob] = []
     @ObservationIgnored private var allSquishedTask: Task<Void, Never>?
-    @ObservationIgnored private var estimateProcess: FFmpegProcess?
+    @ObservationIgnored private var estimateProcesses: [FFmpegProcess] = []
     @ObservationIgnored var keepAwakeActivity: NSObjectProtocol?
-    /// Settings the current estimates were made with, so unrelated changes don't redo them.
-    @ObservationIgnored private var estimatedSettings: EncodeSettings?
+    /// `sampleKey` of the settings the current estimates were made with, so unrelated changes don't redo them.
+    @ObservationIgnored private var estimatedKey: EncodeSettings?
+    /// Files waiting to be read by ffprobe, and how many are being read now.
+    @ObservationIgnored private var probeQueue: [EncodeJob] = []
+    @ObservationIgnored private var activeProbes = 0
+    @ObservationIgnored private var persistTask: Task<Void, Never>?
+    /// The Dock tile redraws only when the whole percent changes.
+    @ObservationIgnored var lastDockPercent: Int?
 
     private static let settingsKey = "settings.v1"
     private static let modeKey = "mode"
@@ -111,6 +121,9 @@ final class QueueStore {
     private static let appearanceKey = "appearance"
     private static let lifetimeBytesKey = "lifetimeSavedBytes"
     private static let lifetimeFilesKey = "lifetimeFiles"
+
+    /// ffprobe runs at a time. Plenty to read a folder quickly without flooding the Mac.
+    private static let maxConcurrentProbes = 8
 
     static let mediaExtensions: Set<String> = [
         "mp4", "m4v", "mov", "mkv", "webm", "avi", "gif", "webp", "apng", "mxf", "mts", "m2ts", "ts",
@@ -144,12 +157,27 @@ final class QueueStore {
     }
 
     func persist() {
+        persistTask?.cancel()
+        persistTask = nil
         guard persistsState else { return }
         let defaults = UserDefaults.standard
         if let data = try? JSONEncoder().encode(settings) { defaults.set(data, forKey: Self.settingsKey) }
         defaults.set(mode.rawValue, forKey: Self.modeKey)
         defaults.set(selectedPresetID, forKey: Self.presetKey)
         if let data = try? JSONEncoder().encode(savedPresets) { defaults.set(data, forKey: Self.savedPresetsKey) }
+    }
+
+    /// Saves settings once they settle. Dragging a slider changes them many times a second, and each
+    /// save is a JSON encode and a defaults write on the main thread. Quitting and starting a batch
+    /// call `persist()` directly, so the latest settings are never lost.
+    func schedulePersist() {
+        guard persistsState else { return }
+        persistTask?.cancel()
+        persistTask = Task {
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
+            persist()
+        }
     }
 
     // MARK: Settings
@@ -244,21 +272,22 @@ final class QueueStore {
 
     // MARK: Queue
 
-    var runnableCount: Int { jobs.filter(\.isRunnable).count }
     var hasFinished: Bool { jobs.contains { $0.status == .done } }
 
     func add(urls: [URL]) {
         let expanded = expand(urls)
         // Adding a file that already finished readies it for another pass instead of being ignored.
-        for job in jobs where job.status == .done && expanded.contains(job.input) {
-            withAnimation(.snappy) { job.status = .ready }
+        let incoming = Set(expanded.map(\.path))
+        let again = jobs.filter { $0.status == .done && incoming.contains($0.input.path) }
+        if !again.isEmpty {
+            withAnimation(.snappy) { for job in again { job.status = .ready } }
         }
-        let fresh = expanded.filter { url in !jobs.contains(where: { $0.input == url }) }
-        for (index, url) in fresh.enumerated() {
-            let job = EncodeJob(input: url)
-            // Rows cascade in 40 ms apart (capped, so a folder of 200 clips doesn't take seconds).
-            withAnimation(Motion.out(0.25).delay(Double(min(index, 8)) * 0.04)) { jobs.append(job) }
-            Task { await probe(job) }
+        var known = Set(jobs.map(\.input.path))
+        let fresh = expanded.filter { known.insert($0.path).inserted }.map { EncodeJob(input: $0) }
+        if !fresh.isEmpty {
+            // One change for the whole drop, so a folder of 200 clips is one layout pass, not 200.
+            withAnimation(Motion.out(0.25)) { jobs.append(contentsOf: fresh) }
+            fresh.forEach(enqueueProbe)
         }
         saveQueue()
     }
@@ -289,7 +318,27 @@ final class QueueStore {
     }
 
     func reprobeAll() {
-        for job in jobs where job.media == nil { Task { await probe(job) } }
+        let waiting = Set(probeQueue.map(\.id))
+        for job in jobs where job.media == nil && !waiting.contains(job.id) { enqueueProbe(job) }
+    }
+
+    /// Probes go through a queue: each ffprobe is a process, and a big folder would otherwise start
+    /// hundreds at once.
+    private func enqueueProbe(_ job: EncodeJob) {
+        probeQueue.append(job)
+        pumpProbes()
+    }
+
+    private func pumpProbes() {
+        while activeProbes < Self.maxConcurrentProbes, !probeQueue.isEmpty {
+            let job = probeQueue.removeFirst()
+            activeProbes += 1
+            Task {
+                await probe(job)
+                activeProbes -= 1
+                pumpProbes()
+            }
+        }
     }
 
     private func expand(_ urls: [URL]) -> [URL] {
@@ -300,9 +349,12 @@ final class QueueStore {
             guard fm.fileExists(atPath: url.path, isDirectory: &isDir) else { continue }
             if isDir.boolValue {
                 let items = fm.enumerator(at: url, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
+                var found: [URL] = []
                 while let item = items?.nextObject() as? URL {
-                    if isMedia(item) { result.append(item) }
+                    if isMedia(item) { found.append(item) }
                 }
+                // The enumerator's order is arbitrary; list a folder the way Finder would.
+                result += found.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
             } else if isMedia(url) {
                 result.append(url)
             }
@@ -351,18 +403,26 @@ final class QueueStore {
     // MARK: Estimates
 
     /// Re-estimates output sizes shortly after settings settle. Cheap cases are computed, the rest sample-encoded.
+    /// Files whose estimate already matches their settings are skipped, so forcing this after every
+    /// probe or batch only does work for new or stale files.
     func scheduleEstimates(force: Bool = false) {
-        guard force || estimatedSettings != settings else { return }
+        let key = settings.sampleKey
+        guard force || estimatedKey != key else { return }
         estimateTask?.cancel()
-        estimateProcess?.cancel()
-        estimatedSettings = settings
-        for job in jobs where job.status == .ready { job.isEstimating = true }
+        stopProcesses(&estimateProcesses)
+        // A thumbnail in progress is for the old settings; this pass makes the new one.
+        thumbnailTask?.cancel()
+        stopProcesses(&thumbnailProcesses)
+        estimatedKey = key
+        for job in jobs where job.status == .ready && !estimateIsCurrent(for: job) { job.isEstimating = true }
         let snapshot = settings
         estimatesInFlight = true
         estimateTask = Task {
             defer { if !Task.isCancelled { estimatesInFlight = false } }
             try? await Task.sleep(for: .milliseconds(650))
-            guard !Task.isCancelled, !isRunning, let encoder = sampleEncoder else {
+            // A newer pass replaced this one and owns the spinners now.
+            guard !Task.isCancelled else { return }
+            guard !isRunning, let encoder = sampleEncoder else {
                 for job in jobs { job.isEstimating = false }
                 return
             }
@@ -372,10 +432,19 @@ final class QueueStore {
             let ordered = ready.filter { $0.id == target?.id } + ready.filter { $0.id != target?.id }
             for job in ordered {
                 guard !Task.isCancelled else { return }
-                job.isEstimating = true
+                let s = job.customSettings ?? snapshot
                 let wantsThumbnail = job.id == target?.id && !thumbnailIsCurrent(for: job)
-                job.estimate = await estimate(job, settings: job.customSettings ?? snapshot, encoder: encoder,
-                                              makeThumbnail: wantsThumbnail)
+                if job.estimate != nil && job.estimateKey == s.sampleKey {
+                    job.isEstimating = false
+                    if wantsThumbnail { await makeThumbnail(for: job, encoder: encoder) }
+                    continue
+                }
+                job.isEstimating = true
+                let result = await estimate(job, settings: s, encoder: encoder, makeThumbnail: wantsThumbnail)
+                // Stopped part-way, the result is a guess from a cut-off sample.
+                guard !Task.isCancelled else { return }
+                job.estimate = result
+                job.estimateKey = result == nil ? nil : s.sampleKey
                 job.isEstimating = false
             }
             // A target that isn't waiting to encode (say, already done) still gets a fresh thumbnail.
@@ -383,6 +452,15 @@ final class QueueStore {
                 await makeThumbnail(for: target, encoder: encoder)
             }
         }
+    }
+
+    private func estimateIsCurrent(for job: EncodeJob) -> Bool {
+        job.estimate != nil && job.estimateKey == effectiveSettings(for: job).sampleKey
+    }
+
+    private func stopProcesses(_ list: inout [FFmpegProcess]) {
+        for process in list { process.cancel() }
+        list = []
     }
 
     // MARK: Live preview
@@ -399,7 +477,7 @@ final class QueueStore {
     }
 
     func thumbnailIsCurrent(for job: EncodeJob) -> Bool {
-        job.thumbnail?.settings == effectiveSettings(for: job)
+        job.thumbnail?.settings.sampleKey == effectiveSettings(for: job).sampleKey
     }
 
     /// Refreshes the live thumbnail on its own (selection changes, a new file at the top), unless the
@@ -407,7 +485,7 @@ final class QueueStore {
     func scheduleThumbnail() {
         guard !isRunning, !estimatesInFlight else { return }
         thumbnailTask?.cancel()
-        thumbnailProcess?.cancel()
+        stopProcesses(&thumbnailProcesses)
         thumbnailTask = Task {
             try? await Task.sleep(for: .milliseconds(250))
             guard !Task.isCancelled, !isRunning, let encoder = sampleEncoder,
@@ -425,35 +503,69 @@ final class QueueStore {
         let length = min(1.5, span)
         guard length > 0.2 else { return }
         let start = kept.lowerBound + (span - length) / 2
+        // Only frames come out of this sample, so encoding its sound would be wasted.
+        var silent = s
+        silent.audioCodec = .none
         let process = FFmpegProcess()
-        thumbnailProcess = process
+        let reference = FFmpegProcess()
+        thumbnailProcesses = [process, reference]
         job.isMakingThumbnail = true
         defer { job.isMakingThumbnail = false }
-        guard let sample = try? await encoder.encode(input: job.input, media: media, settings: s, start: start,
-                                                     length: length, process: process) else { return }
-        defer { try? FileManager.default.removeItem(at: sample.output) }
-        await captureThumbnail(job, settings: s, media: media, encoder: encoder, sample: sample, start: start, process: process)
+        let outTime = encoder.outDuration(input: job.input, media: media, settings: silent, start: start, length: length) / 2
+        let speed = min(max(s.playbackSpeed, 0.25), 4)
+        // The uncompressed frame doesn't depend on the sample, so it renders alongside it.
+        async let before = Self.referenceFrame(encoder, input: job.input, media: media, settings: s,
+                                               sourceTime: start + outTime * speed, process: reference)
+        let sample = try? await encoder.encode(input: job.input, media: media, settings: silent, start: start,
+                                               length: length, process: process)
+        if sample == nil { reference.cancel() }
+        let beforeURL = await before
+        defer { if let sample { try? FileManager.default.removeItem(at: sample.output) } }
+        await captureThumbnail(job, settings: s, encoder: encoder, sample: sample, outTime: outTime,
+                               before: beforeURL, process: process)
     }
 
-    /// Grabs the middle frame of an encoded sample and the same frame rendered without compression.
-    private func captureThumbnail(_ job: EncodeJob, settings s: EncodeSettings, media: MediaInfo, encoder: SampleEncoder,
-                                  sample: SampleEncoder.Sample, start: Double, process: FFmpegProcess) async {
-        let outTime = sample.outDuration / 2
-        let speed = min(max(s.playbackSpeed, 0.25), 4)
-        guard let afterURL = try? await encoder.frame(from: sample.output, at: outTime, settings: s, process: process),
-              let beforeURL = try? await encoder.referenceFrame(input: job.input, media: media, settings: s,
-                                                                sourceTime: start + outTime * speed, process: process)
+    /// `SampleEncoder.referenceFrame` with failures as nil, for running beside the sample encode.
+    private nonisolated static func referenceFrame(_ encoder: SampleEncoder, input: URL, media: MediaInfo,
+                                                   settings: EncodeSettings, sourceTime: Double,
+                                                   process: FFmpegProcess) async -> URL? {
+        try? await encoder.referenceFrame(input: input, media: media, settings: settings, sourceTime: sourceTime,
+                                          process: process)
+    }
+
+    /// Pairs the reference frame with the same moment pulled from the encoded sample.
+    /// Cleans up the reference frame whatever happens; the caller owns the sample.
+    private func captureThumbnail(_ job: EncodeJob, settings s: EncodeSettings, encoder: SampleEncoder,
+                                  sample: SampleEncoder.Sample?, outTime: Double, before beforeURL: URL?,
+                                  process: FFmpegProcess) async {
+        defer { if let beforeURL { try? FileManager.default.removeItem(at: beforeURL.deletingLastPathComponent()) } }
+        guard let sample, let beforeURL, !Task.isCancelled,
+              let afterURL = try? await encoder.frame(from: sample.output, at: outTime, settings: s, process: process)
         else { return }
-        defer {
-            try? FileManager.default.removeItem(at: afterURL)
-            try? FileManager.default.removeItem(at: beforeURL.deletingLastPathComponent())
-        }
-        // Read the bytes now; NSImage(contentsOf:) can load lazily, after the files are gone.
-        guard let afterData = try? Data(contentsOf: afterURL), let beforeData = try? Data(contentsOf: beforeURL),
-              let after = NSImage(data: afterData), let before = NSImage(data: beforeData) else { return }
+        defer { try? FileManager.default.removeItem(at: afterURL) }
+        // Decoded now, off the main thread, and at thumbnail size: two full 4K frames are about 66 MB
+        // per file, kept for a picture a few hundred points wide.
+        let frames = await Task.detached(priority: .userInitiated) {
+            (Self.thumbnailImage(at: beforeURL), Self.thumbnailImage(at: afterURL))
+        }.value
+        guard !Task.isCancelled, let before = frames.0, let after = frames.1 else { return }
         withAnimation(Motion.out(0.25)) {
-            job.thumbnail = PreviewThumbnail(before: before, after: after, settings: s)
+            job.thumbnail = PreviewThumbnail(before: before.image, after: after.image, settings: s)
         }
+    }
+
+    /// Reads a frame scaled to at most 1280 pixels on its long side, decoded straight away so the
+    /// file can be deleted.
+    private nonisolated static func thumbnailImage(at url: URL) -> DecodedFrame? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceThumbnailMaxPixelSize: 1280,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+        ]
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+        return DecodedFrame(cgImage: image)
     }
 
     private func estimate(_ job: EncodeJob, settings s: EncodeSettings, encoder: SampleEncoder,
@@ -470,18 +582,33 @@ final class QueueStore {
         let length = min(direct == nil ? 4 : 1.5, span)
         guard length > 0.2 else { return direct }
         let start = kept.lowerBound + (span - length) / 2
+        // A sample that's only for the thumbnail needs no sound. One that's measured keeps it, or the
+        // estimate would leave the audio out.
+        var sampleSettings = s
+        if direct != nil { sampleSettings.audioCodec = .none }
         let process = FFmpegProcess()
-        estimateProcess = process
+        let reference = FFmpegProcess()
+        estimateProcesses = makeThumbnail ? [process, reference] : [process]
         if makeThumbnail { job.isMakingThumbnail = true }
         defer { if makeThumbnail { job.isMakingThumbnail = false } }
-        guard let sample = try? await encoder.encode(input: job.input, media: media, settings: s, start: start,
-                                                     length: length, process: process) else { return direct }
-        defer { try? FileManager.default.removeItem(at: sample.output) }
+        let outTime = encoder.outDuration(input: job.input, media: media, settings: sampleSettings,
+                                          start: start, length: length) / 2
+        let speed = min(max(s.playbackSpeed, 0.25), 4)
+        async let before = makeThumbnail
+            ? Self.referenceFrame(encoder, input: job.input, media: media, settings: s,
+                                  sourceTime: start + outTime * speed, process: reference)
+            : nil
+        let sample = try? await encoder.encode(input: job.input, media: media, settings: sampleSettings, start: start,
+                                               length: length, process: process)
+        if sample == nil { reference.cancel() }
+        let beforeURL = await before
+        defer { if let sample { try? FileManager.default.removeItem(at: sample.output) } }
         if makeThumbnail {
-            await captureThumbnail(job, settings: s, media: media, encoder: encoder, sample: sample, start: start, process: process)
+            await captureThumbnail(job, settings: s, encoder: encoder, sample: sample, outTime: outTime,
+                                   before: beforeURL, process: process)
         }
         if let direct { return direct }
-        guard sample.outDuration > 0 else { return nil }
+        guard let sample, sample.outDuration > 0 else { return nil }
         let full = CommandBuilder(settings: s, input: job.input, output: job.input, media: media,
                                   encoders: environment.encoders, filters: environment.filters).plan()
         return Int64(Double(sample.bytes) * full.expectedDuration / sample.outDuration)
@@ -573,13 +700,15 @@ final class QueueStore {
             return
         }
         estimateTask?.cancel()
-        estimateProcess?.cancel()
+        stopProcesses(&estimateProcesses)
         thumbnailTask?.cancel()
-        thumbnailProcess?.cancel()
+        stopProcesses(&thumbnailProcesses)
+        for job in jobs { job.isEstimating = false }
         persist()
         beginKeepAwake()
         isRunning = true
         batch = queued
+        lastDockPercent = nil
         updateDockProgress()
         let workers = min(max(concurrentJobs, 1), 4)
         runTask = Task {
@@ -600,11 +729,13 @@ final class QueueStore {
             isRunning = false
             processes.removeAll()
             endKeepAwake()
-            Delight.setDockProgress(nil)
+            clearDockProgress()
             // Sound and bounce once per batch, not per file.
             if batch.contains(where: { $0.status == .done }) {
-                Delight.playFinishSound(enabled: playSounds)
+                Delight.play(.finish, enabled: playSounds)
                 Delight.announceBatchFinished()
+            } else if batch.contains(where: { $0.status == .failed }) {
+                Delight.play(.fail, enabled: playSounds)
             }
             batch = []
             scheduleEstimates(force: true)
@@ -620,7 +751,17 @@ final class QueueStore {
             default: sum
             }
         }
-        Delight.setDockProgress(total / Double(batch.count))
+        let fraction = total / Double(batch.count)
+        // Progress ticks arrive several times a second per file; the tile only needs a new percent.
+        let percent = Int(fraction * 100)
+        guard percent != lastDockPercent else { return }
+        lastDockPercent = percent
+        Delight.setDockProgress(fraction)
+    }
+
+    func clearDockProgress() {
+        lastDockPercent = nil
+        Delight.setDockProgress(nil)
     }
 
     func resetLifetimeTotals() {
@@ -645,8 +786,8 @@ final class QueueStore {
         estimateTask?.cancel()
         thumbnailTask?.cancel()
         for process in processes.values { process.cancel() }
-        estimateProcess?.cancel()
-        thumbnailProcess?.cancel()
+        stopProcesses(&estimateProcesses)
+        stopProcesses(&thumbnailProcesses)
     }
 
     /// Moves a file above `target`, or to the end when `target` is nil.
@@ -756,10 +897,15 @@ final class QueueStore {
                         guard job.status == .encoding else { return }
                         let passProgress = expected > 0 ? min(seconds / expected, 1) : 0
                         job.progress = (Double(index) + passProgress) / Double(passCount)
-                        job.encodeSpeed = speed
+                        // Rows show speed to a tenth and time left to the second; only a visible
+                        // change is worth an update.
+                        if speed.map({ ($0 * 10).rounded() }) != job.encodeSpeed.map({ ($0 * 10).rounded() }) {
+                            job.encodeSpeed = speed
+                        }
                         if let started = job.startedAt, job.progress > 0.02 {
                             let elapsed = Date().timeIntervalSince(started)
-                            job.eta = elapsed / job.progress * (1 - job.progress)
+                            let eta = elapsed / job.progress * (1 - job.progress)
+                            if eta.rounded() != job.eta?.rounded() { job.eta = eta }
                         }
                         self.updateDockProgress()
                     }
@@ -777,11 +923,7 @@ final class QueueStore {
             job.message = error.localizedDescription
             try? fm.removeItem(at: output)
         }
-        if let prefix = plan.passLogPrefix {
-            for suffix in ["-0.log", "-0.log.mbtree", "-0.log.temp", "-0.log.mbtree.temp"] {
-                try? fm.removeItem(atPath: prefix + suffix)
-            }
-        }
+        plan.removePassLogs()
     }
 
     func outputURL(for input: URL, settings s: EncodeSettings) -> URL {
@@ -875,6 +1017,14 @@ enum Appearance: String, CaseIterable, Identifiable {
         case .dark: .dark
         }
     }
+}
+
+/// A frame decoded off the main thread, wrapped in an NSImage back on it.
+private struct DecodedFrame: @unchecked Sendable {
+    let cgImage: CGImage
+
+    /// Sized in pixels, so the views read the true aspect ratio from it.
+    var image: NSImage { NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height)) }
 }
 
 /// Live-thumbnail frames: the same moment rendered without compression and encoded.

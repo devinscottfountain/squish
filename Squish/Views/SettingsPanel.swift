@@ -132,7 +132,7 @@ struct SimpleSettingsView: View {
                             Note(text: "Lossless keeps every bit of the original sound. Files are much larger.",
                                  tint: Theme.lilac, symbol: "info.circle.fill")
                         }
-                        SettingRow(title: "Even out loudness", hint: "Normalizes to −16 LUFS, a common podcast and web level") {
+                        SettingRow(title: "Normalize loudness", hint: "Evens out to −16 LUFS, a common podcast and web level") {
                             Switch(isOn: store.bind(\.normalizeLoudness))
                         }
                     }
@@ -282,6 +282,7 @@ struct PresetPicker: View {
     @State private var isOpen = false
     @State private var hovering = false
     @State private var width: CGFloat = 280
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private struct Current {
         let name: String
@@ -307,7 +308,7 @@ struct PresetPicker: View {
             HStack(spacing: 10) {
                 PresetIcon(symbol: c.symbol, tint: c.tint, filled: true)
                     .id(c.symbol)
-                    .transition(.iconSwap)
+                    .transition(.iconSwap(reduceMotion: reduceMotion))
                 VStack(alignment: .leading, spacing: 1) {
                     Text(c.name)
                         .font(.system(size: 12.5, weight: .semibold))
@@ -503,25 +504,6 @@ private struct PresetIcon: View {
     }
 }
 
-struct MiniChipStyle: ButtonStyle {
-    var selected: Bool
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(selected ? Theme.onText : Theme.secondary)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 4)
-            .background(Capsule().fill(selected ? Theme.text : Theme.field))
-            // ~40 pt tall hit area without changing layout; 3 pt sideways keeps neighbors (6 pt apart) from overlapping.
-            .padding(.horizontal, 3).padding(.vertical, 9)
-            .contentShape(Rectangle())
-            .padding(.horizontal, -3).padding(.vertical, -9)
-            .scaleEffect(configuration.isPressed ? 0.96 : 1)
-            .animation(Motion.press, value: configuration.isPressed)
-    }
-}
-
 // MARK: - Advanced
 
 struct AdvancedSettingsView: View {
@@ -546,7 +528,8 @@ struct AdvancedSettingsView: View {
                 metadataSection(s)
                 outputSection(s)
             }
-            .padding(12)
+            // Concentric with the card: card radius 22 = section radius 14 + 8 inset.
+            .padding(8)
         }
         .scrollIndicators(.never)
     }
@@ -586,7 +569,7 @@ struct AdvancedSettingsView: View {
             }
             // Only warn about a real file; a placeholder has no duration or streams to judge.
             if let job = store.jobs.first {
-                ForEach(store.plan(for: job).warnings, id: \.self) { Note(text: $0) }
+                PlanWarnings(job: job)
             }
         }
     }
@@ -618,7 +601,7 @@ struct AdvancedSettingsView: View {
                     SettingRow(title: "Buffer size", hint: "0 = 2× max bitrate") { NumberField(value: store.bind(\.bufferSizeKbps), suffix: "kbps") }
                     SettingRow(title: "Two-pass", hint: "x264, VP9 and AV1 (aom)") { Switch(isOn: store.bind(\.twoPass)) }
                 case .targetSize:
-                    SettingRow(title: "Target size", hint: "Audio is budgeted in") {
+                    SettingRow(title: "Max file size", hint: "Audio is budgeted in") {
                         NumberField(value: store.bind(\.targetSizeMB), suffix: "MB", width: 48)
                     }
                 case .constant:
@@ -712,9 +695,9 @@ struct AdvancedSettingsView: View {
             if s.resolution == .custom {
                 SettingRow(title: "Size", hint: "0 keeps aspect ratio", combine: false) {
                     HStack(spacing: 6) {
-                        NumberField(value: store.bind(\.customWidth), width: 40)
-                        Text("×").foregroundStyle(Theme.tertiary)
-                        NumberField(value: store.bind(\.customHeight), width: 40)
+                        NumberField(value: store.bind(\.customWidth), width: 40).accessibilityLabel("Width")
+                        Text("×").foregroundStyle(Theme.tertiary).accessibilityHidden(true)
+                        NumberField(value: store.bind(\.customHeight), width: 40).accessibilityLabel("Height")
                     }
                 }
             } else if s.resolution != .original {
@@ -752,15 +735,29 @@ struct AdvancedSettingsView: View {
                         .buttonStyle(MiniChipStyle(selected: s.flipVertical))
                 }
             }
-            SettingRow(title: "Crop", hint: "Pixels off each edge: top, bottom, left, right") {
-                EmptyView()
+            // A titled group, not a SettingRow: the fields sit below the title, so the row has no control
+            // of its own for VoiceOver to land on. The fields carry their own labels.
+            VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Crop")
+                        .font(.system(size: 12.5, weight: .medium))
+                        .foregroundStyle(Theme.text)
+                    Text("Pixels off each edge: top, bottom, left, right")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(minHeight: 28, alignment: .leading)
+                .accessibilityHidden(true)
+                HStack(spacing: 6) {
+                    NumberField(value: store.bind(\.cropTop), width: 30).accessibilityLabel("Crop top")
+                    NumberField(value: store.bind(\.cropBottom), width: 30).accessibilityLabel("Crop bottom")
+                    NumberField(value: store.bind(\.cropLeft), width: 30).accessibilityLabel("Crop left")
+                    NumberField(value: store.bind(\.cropRight), width: 30).accessibilityLabel("Crop right")
+                }
             }
-            HStack(spacing: 6) {
-                NumberField(value: store.bind(\.cropTop), width: 30).accessibilityLabel("Crop top")
-                NumberField(value: store.bind(\.cropBottom), width: 30).accessibilityLabel("Crop bottom")
-                NumberField(value: store.bind(\.cropLeft), width: 30).accessibilityLabel("Crop left")
-                NumberField(value: store.bind(\.cropRight), width: 30).accessibilityLabel("Crop right")
-            }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Crop, pixels off each edge")
 
             Rectangle().fill(Theme.divider).frame(height: 1)
 
@@ -867,7 +864,7 @@ struct AdvancedSettingsView: View {
             if s.outputSupportsAlpha {
                 Note(text: "This output can carry alpha as \(s.alphaFormatName).", tint: Theme.green, symbol: "checkmark.circle.fill")
             } else {
-                Note(text: "\(s.container.label) / \(s.videoCodec.label) can't carry alpha. Transparent areas get flattened onto the background color. Use ProRes (MOV), VP9 (WebM) or HEVC + hardware encoder (MOV) to keep it.")
+                Note(text: "\(s.container.label)/\(s.videoCodec.label) can't keep transparency, so it's flattened onto the background. ProRes, VP9 or hardware HEVC (MOV) keep it.")
             }
 
             switch s.alphaMode {
@@ -898,7 +895,7 @@ struct AdvancedSettingsView: View {
     @ViewBuilder
     private func metadataSection(_ s: EncodeSettings) -> some View {
         SettingsSection("Metadata", symbol: "tag", tint: Theme.pink, badge: s.stripMetadata ? "Stripped" : nil) {
-            SettingRow(title: "Strip everything", hint: "Camera, dates, GPS, encoder tags") {
+            SettingRow(title: "Remove metadata", hint: "Camera, dates, GPS, encoder tags") {
                 Switch(isOn: store.bind(\.stripMetadata))
             }
             if !s.stripMetadata {
@@ -950,6 +947,17 @@ struct AdvancedSettingsView: View {
     }
 }
 
+/// The plan's warnings for a file. Built without resolving the output path, which checks the
+/// disk for a free name, so redrawing Advanced settings never touches the file system.
+private struct PlanWarnings: View {
+    @Environment(QueueStore.self) private var store
+    let job: EncodeJob
+
+    var body: some View {
+        ForEach(store.warnings(for: job), id: \.self) { Note(text: $0) }
+    }
+}
+
 // MARK: - Live thumbnail
 
 /// A small before/after of the previewed file that keeps up with the settings. Hover to slide the
@@ -969,11 +977,9 @@ struct LiveThumbnail: View {
                 if let thumb = job.thumbnail {
                     GeometryReader { geo in
                         // The whole frame, letterboxed: vertical and square video isn't cropped.
-                        let size = fitted(thumb.after.size, in: geo.size)
+                        let size = BeforeAfter.fitted(thumb.after.size, in: geo.size)
                         ZStack(alignment: .leading) {
-                            frame(thumb.after, size: size)
-                            frame(thumb.before, size: size)
-                                .mask(alignment: .leading) { Rectangle().frame(width: size.width * split) }
+                            SplitImageStack(before: thumb.before, after: thumb.after, size: size, split: split)
                             Rectangle()
                                 .fill(.white)
                                 .frame(width: 1.5)
@@ -1003,8 +1009,8 @@ struct LiveThumbnail: View {
             .aspectRatio(boxRatio, contentMode: .fit)
             .clipShape(shape)
             .overlay(shape.strokeBorder(Theme.imageOutline, lineWidth: 1))
-            .overlay(alignment: .topLeading) { tag("Original").padding(8) }
-            .overlay(alignment: .topTrailing) { tag("Squished").padding(8) }
+            .overlay(alignment: .topLeading) { ScrimTag("Original", compact: true).padding(8) }
+            .overlay(alignment: .topTrailing) { ScrimTag("Squished", compact: true).padding(8) }
             .overlay(alignment: .bottomLeading) {
                 if !current || job.isMakingThumbnail {
                     HStack(spacing: 6) {
@@ -1044,26 +1050,5 @@ struct LiveThumbnail: View {
     private var boxRatio: CGFloat {
         guard let size = job.thumbnail?.after.size, size.width > 0, size.height > 0 else { return 16 / 9 }
         return min(max(size.width / size.height, 1.2), 2)
-    }
-
-    private func fitted(_ image: CGSize, in box: CGSize) -> CGSize {
-        guard image.width > 0, image.height > 0 else { return box }
-        let scale = min(box.width / image.width, box.height / image.height)
-        return CGSize(width: image.width * scale, height: image.height * scale)
-    }
-
-    private func frame(_ image: NSImage, size: CGSize) -> some View {
-        Image(nsImage: image)
-            .resizable()
-            .frame(width: size.width, height: size.height)
-    }
-
-    private func tag(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 10, weight: .semibold))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background(Capsule().fill(.black.opacity(0.55)))
     }
 }

@@ -65,40 +65,23 @@ final class FFmpegProcess: @unchecked Sendable {
         let process = Process()
         process.executableURL = binary
         process.arguments = ["-progress", "pipe:1", "-nostats", "-loglevel", "error"] + arguments
-        let out = Pipe()
-        let err = Pipe()
-        process.standardOutput = out
-        process.standardError = err
-        process.standardInput = FileHandle.nullDevice
+        // SVT-AV1 prints "Svt[info]" banners to stderr whatever -loglevel says; 1 keeps only its errors,
+        // so a failure message is about the failure.
+        process.environment = ProcessInfo.processInfo.environment.merging(["SVT_LOG": "1"]) { _, new in new }
 
         let parser = ProgressParser(onProgress: onProgress)
         let errors = TextBuffer()
-        out.fileHandleForReading.readabilityHandler = { handle in parser.feed(handle.availableData) }
-        err.fileHandleForReading.readabilityHandler = { handle in errors.append(handle.availableData) }
-
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            process.terminationHandler = { [weak self] finished in
-                _ = FFmpegProcess.registryLock.withLock { FFmpegProcess.live.removeValue(forKey: ObjectIdentifier(finished)) }
-                out.fileHandleForReading.readabilityHandler = nil
-                err.fileHandleForReading.readabilityHandler = nil
-                errors.append(err.fileHandleForReading.readDataToEndOfFile())
-                if finished.terminationStatus == 0 {
-                    continuation.resume()
-                } else if self?.isCancelled == true {
-                    continuation.resume(throwing: CancellationError())
-                } else {
-                    continuation.resume(throwing: FFmpegError.exited(code: finished.terminationStatus, message: errors.text))
-                }
-            }
-            lock.withLock { self.process = process }
-            do {
-                try process.run()
-                FFmpegProcess.registryLock.withLock { FFmpegProcess.live[ObjectIdentifier(process)] = process }
-            } catch {
-                process.terminationHandler = nil
-                continuation.resume(throwing: error)
-            }
+        let status = try await ProcessRunner.launch(process, stdout: { parser.feed($0) },
+                                                    stderr: { errors.append($0) }) { launched in
+            lock.withLock { self.process = launched }
+            FFmpegProcess.registryLock.withLock { FFmpegProcess.live[ObjectIdentifier(launched)] = launched }
+            // cancel() may have landed while the process was starting, before there was anything to stop.
+            if isCancelled { launched.terminate() }
         }
+        _ = FFmpegProcess.registryLock.withLock { FFmpegProcess.live.removeValue(forKey: ObjectIdentifier(process)) }
+        if status == 0 { return }
+        if isCancelled { throw CancellationError() }
+        throw FFmpegError.exited(code: status, message: errors.text)
     }
 }
 
@@ -114,7 +97,8 @@ private final class TextBuffer: @unchecked Sendable {
     var text: String { lock.withLock { String(decoding: data, as: UTF8.self) } }
 }
 
-private final class ProgressParser: @unchecked Sendable {
+/// Turns `-progress` key=value lines into (seconds written, speed) updates, one per block.
+final class ProgressParser: @unchecked Sendable {
     private let lock = NSLock()
     private var buffer = ""
     private var seconds: Double = 0

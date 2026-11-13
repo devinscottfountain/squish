@@ -12,8 +12,9 @@
 #
 # One-time setup:
 #   brew install xcodegen cmake pkgconf autoconf automake libtool
-#   Tools/build-ffmpeg.sh       static arm64 ffmpeg + ffprobe with x264, x265 (8/10/12-bit), SVT-AV1,
-#                               libvpx, Opus, LAME, libwebp, zimg. Takes a while; resumes if interrupted.
+#   Tools/build-ffmpeg.sh       static arm64 ffmpeg with x264, x265 (8/10-bit), SVT-AV1, libvpx, Opus,
+#                               LAME, libwebp, zimg, plus a lean ffprobe (demuxers and decoders only).
+#                               Takes a while; resumes if interrupted.
 #
 # Each release:
 #   1. Bump MARKETING_VERSION and CURRENT_PROJECT_VERSION in project.yml, and commit. Sparkle compares
@@ -129,6 +130,10 @@ cp "$ROOT/LICENSE" "$APP/Contents/Resources/Licenses/Squish-LICENSE.txt"
   cat "$FFMPEG/VERSIONS.txt"
 } > "$APP/Contents/Resources/Licenses/THIRD_PARTY_NOTICES.txt"
 
+# --- Strip symbols (the app's dSYM stays in build/release for symbolicating crash logs) -------------
+step "Stripping symbols"
+strip "$APP/Contents/MacOS/Squish" "$APP/Contents/Helpers/ffmpeg" "$APP/Contents/Helpers/ffprobe"
+
 # --- Sign: helpers and Sparkle first, then the app -------------------------------------------------
 step "Signing ($([[ $LOCAL == true ]] && echo "ad-hoc" || echo "$IDENTITY"))"
 "${SIGN[@]}" "$APP/Contents/Helpers/ffmpeg"
@@ -146,6 +151,7 @@ else
 fi
 codesign --verify --deep --strict --verbose=1 "$APP"
 "$APP/Contents/Helpers/ffmpeg" -hide_banner -version | head -1
+"$APP/Contents/Helpers/ffprobe" -hide_banner -version | head -1
 
 # --- DMG ------------------------------------------------------------------------------------------
 step "Making the disk image"
@@ -154,7 +160,8 @@ mkdir -p "$STAGE"
 ditto "$APP" "$STAGE/Squish.app"
 ln -s /Applications "$STAGE/Applications"
 DMG="$DIST/Squish-$VERSION.dmg"
-hdiutil create -quiet -volname "Squish" -srcfolder "$STAGE" -ov -format UDZO "$DMG"
+# LZMA (ULMO) is about a quarter smaller than zlib (UDZO); it needs macOS 10.15+, and Squish needs 15.
+hdiutil create -quiet -volname "Squish" -srcfolder "$STAGE" -ov -format ULMO "$DMG"
 rm -rf "$STAGE"
 
 if $LOCAL; then

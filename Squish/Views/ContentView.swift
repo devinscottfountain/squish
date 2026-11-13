@@ -15,12 +15,13 @@ struct ContentView: View {
 
             HStack(alignment: .top, spacing: 14) {
                 QueueCard()
+                    .frame(minWidth: 440, maxWidth: .infinity)
                 SettingsPanel()
-                    .frame(width: 370)
+                    .frame(minWidth: 370, idealWidth: 420, maxWidth: 460)
             }
             .padding(.horizontal, 14)
             .padding(.top, 34) // just clears the traffic lights
-            .padding(.bottom, 88)
+            .padding(.bottom, 82) // toolbar: 18 off the bottom + 50 tall, then a 14 pt gutter like the sides
             .ignoresSafeArea(edges: .top)
 
             BottomToolbar(showCommand: $showCommand)
@@ -44,16 +45,18 @@ struct ContentView: View {
         }
         .frame(minWidth: 960, minHeight: 640)
         .dropDestination(for: URL.self) { urls, _ in
+            let before = store.jobs.count
             store.add(urls: urls)
             Delight.thud()
+            if store.jobs.count > before { Delight.play(.drop, enabled: store.playSounds) }
             return true
         } isTargeted: { targeted in
-            withAnimation(.easeOut(duration: 0.15)) { dropTargeted = targeted }
+            withAnimation(Motion.hover) { dropTargeted = targeted }
         }
         .sheet(isPresented: $showCommand) { CommandSheet() }
         .sheet(item: $store.previewJob) { job in PreviewSheet(job: job) }
         .onChange(of: store.settings) {
-            store.persist()
+            store.schedulePersist()
             store.scheduleEstimates()
         }
         .onChange(of: store.mode) { store.persist() }

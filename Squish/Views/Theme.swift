@@ -36,15 +36,17 @@ enum Theme {
 
     static let text = Color.adaptive(light: .black.withAlphaComponent(0.86), dark: .white.withAlphaComponent(0.94))
     static let secondary = Color.adaptive(light: .black.withAlphaComponent(0.55), dark: .white.withAlphaComponent(0.55))
-    static let tertiary = Color.adaptive(light: .black.withAlphaComponent(0.36), dark: .white.withAlphaComponent(0.32))
+    static let tertiary = Color.adaptive(light: .black.withAlphaComponent(0.50), dark: .white.withAlphaComponent(0.45))
     /// Text on a `text`-colored fill (selected chips).
     static let onText = Color.adaptive(light: .white, dark: .black)
 
     // Accents are a step deeper in light mode so they keep their contrast on pale glass.
     static let orange = Color.adaptive(light: "#E2451E", dark: "#F2542D")
     static let yellow = Color.adaptive(light: "#D98A00", dark: "#F5A524")
+    /// Yellow for text: `yellow` is too light to read as small type on pale glass.
+    static let yellowText = Color.adaptive(light: "#A86500", dark: "#F5A524")
     static let lilac = Color.adaptive(light: "#6A62D6", dark: "#8E88E8")
-    static let green = Color.adaptive(light: "#1E9E50", dark: "#3CCB6E")
+    static let green = Color.adaptive(light: "#17803F", dark: "#3CCB6E")
     static let red = Color.adaptive(light: "#D63B3B", dark: "#F26B6B")
     static let indigo = Color.adaptive(light: "#4E54D4", dark: "#6C72E8")
     static let teal = Color.adaptive(light: "#14968F", dark: "#3BC7C0")
@@ -172,6 +174,11 @@ extension AnyTransition {
     /// Contextual icon appearing or disappearing (hover actions, state swaps).
     static let iconSwap = AnyTransition.modifier(active: IconSwapEffect(shown: false), identity: IconSwapEffect(shown: true))
         .animation(Motion.icon)
+
+    /// The icon swap, or a plain crossfade with Reduce Motion (no scale or blur).
+    static func iconSwap(reduceMotion: Bool) -> AnyTransition {
+        reduceMotion ? AnyTransition.opacity.animation(Motion.icon) : iconSwap
+    }
 
     /// One step of a staged entrance (~100 ms apart); leaves with a quick fade.
     static func stagedEnter(delay: Double, reduceMotion: Bool) -> AnyTransition {

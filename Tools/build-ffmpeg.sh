@@ -2,7 +2,12 @@
 # Builds standalone arm64 ffmpeg and ffprobe for bundling inside Squish.app.
 #
 #   Tools/build-ffmpeg.sh            build (resumes where it left off)
+#   Tools/build-ffmpeg.sh ffprobe    rebuild just the lean ffprobe (everything else resumes as usual)
 #   Tools/build-ffmpeg.sh --clean    start over (keeps downloaded sources)
+#
+# ffmpeg (the encoder) links all the libraries below. ffprobe is a separate, much smaller build of the
+# same ffmpeg source in its own tree, with no external libraries, encoders, muxers, filters, devices
+# or network: Squish only uses it to read a file's format and streams (-show_format -show_streams).
 #
 # Every library is built static into a private prefix, and pkg-config only looks there, so no
 # Homebrew libraries leak into the result. The binaries link nothing but macOS system libraries
@@ -37,9 +42,10 @@ OUT="$ROOT/out"
 LOGS="$ROOT/logs"
 JOBS=$(sysctl -n hw.ncpu)
 
-if [[ "${1:-}" == "--clean" ]]; then
-  rm -rf "$SRC" "$PREFIX" "$OUT" "$LOGS"
-fi
+case "${1:-}" in
+  --clean) rm -rf "$SRC" "$PREFIX" "$OUT" "$LOGS" ;;
+  ffprobe) rm -f "$LOGS/ffprobe-lean.done" ;;
+esac
 mkdir -p "$DOWNLOADS" "$SRC" "$PREFIX" "$OUT/licenses" "$LOGS"
 
 for tool in cmake pkg-config autoreconf glibtoolize make clang; do
@@ -110,7 +116,8 @@ x264() {
   make -j$JOBS && make install
 }
 
-# x265 as one library with 8, 10 and 12-bit encoders, so ffmpeg can make 8-bit and 10-bit HEVC.
+# x265 as one library with 8 and 10-bit encoders, so ffmpeg can make 8-bit and 10-bit HEVC. (Squish
+# never asks for 12-bit, so that build is left out. Takes effect on the next full rebuild: --clean.)
 x265() {
   local src="$SRC/x265_4.1/source" work="$SRC/x265_4.1/multilib"
   # x265 4.1 forces two OLD CMake policies that CMake 4 removed. Use NEW, and let its compiler
@@ -119,18 +126,16 @@ x265() {
             -e 's/cmake_policy(SET CMP0054 OLD)/cmake_policy(SET CMP0054 NEW)/' \
             -e 's/if(${CMAKE_CXX_COMPILER_ID} STREQUAL "Clang")/if(${CMAKE_CXX_COMPILER_ID} MATCHES "Clang")/' \
             "$src/CMakeLists.txt"
-  rm -rf "$work" && mkdir -p "$work"/{8bit,10bit,12bit}
+  rm -rf "$work" && mkdir -p "$work"/{8bit,10bit}
   local high=(-DHIGH_BIT_DEPTH=ON -DEXPORT_C_API=OFF -DENABLE_SHARED=OFF -DENABLE_CLI=OFF)
-  (cd "$work/12bit" && cmake "$src" "${CMAKE_COMMON[@]}" "${high[@]}" -DMAIN12=ON && make -j$JOBS)
   (cd "$work/10bit" && cmake "$src" "${CMAKE_COMMON[@]}" "${high[@]}" && make -j$JOBS)
   cd "$work/8bit"
   cp ../10bit/libx265.a libx265_main10.a
-  cp ../12bit/libx265.a libx265_main12.a
   cmake "$src" "${CMAKE_COMMON[@]}" -DENABLE_SHARED=OFF -DENABLE_CLI=OFF \
-    -DEXTRA_LIB="x265_main10.a;x265_main12.a" -DEXTRA_LINK_FLAGS=-L. -DLINKED_10BIT=ON -DLINKED_12BIT=ON
+    -DEXTRA_LIB="x265_main10.a" -DEXTRA_LINK_FLAGS=-L. -DLINKED_10BIT=ON
   make -j$JOBS
   mv libx265.a libx265_main.a
-  /usr/bin/libtool -static -o libx265.a libx265_main.a libx265_main10.a libx265_main12.a
+  /usr/bin/libtool -static -o libx265.a libx265_main.a libx265_main10.a
   make install
   cp libx265.a "$PREFIX/lib/libx265.a"
 }
@@ -176,18 +181,50 @@ zimg() {
   make -j$JOBS && make install
 }
 
+# The encoding ffmpeg. ffprobe comes from ffprobe_lean below, so it isn't built here.
+# --disable-network/indevs/outdevs (lavfi kept: the tests generate input with -f lavfi) and
+# --disable-ffprobe take effect on the next full rebuild (--clean).
 ffmpeg() {
   cd "$SRC/ffmpeg-8.0.3"
   ./configure --prefix="$PREFIX" --pkg-config-flags=--static \
     --arch=arm64 --target-os=darwin --cc=clang --cxx=clang++ \
     --extra-cflags="$CFLAGS" --extra-ldflags="$LDFLAGS" --extra-libs="-lc++" \
     --enable-gpl --enable-version3 --disable-shared --enable-static \
-    --disable-doc --disable-debug --disable-ffplay --disable-sdl2 --disable-xlib --disable-libxcb \
+    --disable-doc --disable-debug --disable-ffplay --disable-ffprobe --disable-sdl2 --disable-xlib --disable-libxcb \
+    --disable-network --disable-indevs --enable-indev=lavfi --disable-outdevs \
     --enable-videotoolbox --enable-audiotoolbox \
     --enable-libx264 --enable-libx265 --enable-libsvtav1 --enable-libvpx --enable-libopus \
     --enable-libmp3lame --enable-libwebp --enable-libzimg
   make -j$JOBS
-  cp ffmpeg ffprobe "$OUT/"
+  cp ffmpeg "$OUT/"
+}
+
+# The bundled ffprobe: the same ffmpeg source, unpacked again into its own tree (an in-tree configure
+# of the main build rules out out-of-tree builds from it), with only what reading a file's format and
+# streams needs: every demuxer, parser, bsf and native decoder, the file/pipe protocols, plus the
+# system zlib/bzip2/iconv and AudioToolbox decoders the main build autodetects. No external libraries,
+# encoders, muxers, filters, hwaccels, devices or network; --enable-small (fine for probing, never
+# for the encoding ffmpeg). swresample stays because the native Opus decoder needs it.
+ffprobe_lean() {
+  local dir="$SRC/ffmpeg-8.0.3-ffprobe"
+  rm -rf "$dir" && mkdir -p "$dir"
+  tar -xf "$DOWNLOADS/ffmpeg-8.0.3.tar.xz" -C "$dir" --strip-components 1
+  cd "$dir"
+  unset CFLAGS CXXFLAGS LDFLAGS   # no -O3 overriding --enable-small's -Os, no private prefix
+  # (-liconv: configure's iconv probe passes without it, but the link then fails.)
+  ./configure --prefix="$dir/install" \
+    --arch=arm64 --target-os=darwin --cc=clang \
+    --extra-cflags="$ARCH_FLAGS" --extra-ldflags="$ARCH_FLAGS" --extra-libs="-liconv" \
+    --enable-gpl --enable-version3 --disable-shared --enable-static \
+    --disable-autodetect --enable-zlib --enable-bzlib --enable-iconv --enable-audiotoolbox \
+    --disable-doc --disable-debug --enable-small \
+    --disable-programs --enable-ffprobe \
+    --disable-avdevice --disable-avfilter --disable-swscale \
+    --disable-encoders --disable-muxers --disable-filters --disable-hwaccels \
+    --disable-indevs --disable-outdevs --disable-network \
+    --disable-protocols --enable-protocol=file,pipe
+  make -j$JOBS
+  cp ffprobe "$OUT/ffprobe"
 }
 
 build x264 x264
@@ -199,6 +236,7 @@ build lame lame
 build libwebp libwebp
 build zimg zimg
 build ffmpeg ffmpeg
+build ffprobe-lean ffprobe_lean
 
 # --- Licenses and versions ------------------------------------------------------------------------
 step "Collecting licenses"
@@ -215,6 +253,8 @@ copy_license zimg    "$SRC/zimg-3.0.6/COPYING"
 
 {
   echo "Squish's bundled ffmpeg, built by Tools/build-ffmpeg.sh on $(date -u +%Y-%m-%d)"
+  echo "ffmpeg links all of the libraries below. ffprobe is built from the same ffmpeg source alone"
+  echo "(no external libraries), with --enable-gpl --enable-version3 as well."
   echo
   for entry in "${SOURCES[@]}"; do
     read -r file sha url <<<"$entry"
@@ -238,6 +278,8 @@ for e in libx264 libx265 libsvtav1 libvpx-vp9 libwebp_anim libopus libmp3lame h2
   grep -q " $e " <<<"$encoders" || missing+=($e)
 done
 grep -q " zscale " <<<"$filters" || missing+=(zscale)
+demuxers=$("$OUT/ffprobe" -hide_banner -demuxers)
+grep -q " mov,mp4" <<<"$demuxers" || missing+=(ffprobe:mov-demuxer)
 if (( ${#missing} )); then
   echo "Missing from the build: ${missing[*]}"; exit 1
 fi

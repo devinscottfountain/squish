@@ -103,13 +103,13 @@ The tests (`SquishTests`, Swift Testing) cover the command builder and also run 
 | `Squish/Store/` | The queue, encode loop, persistence, keep-awake and quit cleanup |
 | `Squish/Views/` | SwiftUI: glass cards, pill controls, status glyphs, floating toolbar, Settings and About |
 | `Squish/Engine/Updater.swift` | Sparkle setup for in-app updates; the feed is `appcast.xml` in this repo |
-| `Tools/` | `build-ffmpeg.sh`, `release.sh` (with `appcast.py`), the icon renderer and the finish-sound synthesizer |
+| `Tools/` | `build-ffmpeg.sh`, `release.sh` (with `appcast.py`), the icon renderer and the sound synthesizer |
 
 ## Small delights
 
 Kept quiet on purpose. Each one fires on a real event and respects Reduce Motion and the Mac's sound settings.
 
-- **Finish sound:** a short layered "squish-pop-chime", played once per batch (`Tools/render_sound.py`). You can turn it off in Settings.
+- **Sounds:** a small rising arpeggio once per finished batch, a soft pluck when files land in the queue, and two low falling notes if a batch fails outright. All short, quiet and in one key (`Tools/render_sound.py`). You can turn them off in Settings.
 - **Row squish:** the status ring squashes and springs back as a file finishes.
 - **Count-up:** saved bytes and percentages roll up in the stats pill.
 - **Dock:** a progress bar during a batch, and one bounce when it finishes if Squish is in the background.

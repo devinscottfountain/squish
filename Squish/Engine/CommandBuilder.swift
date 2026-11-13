@@ -7,6 +7,16 @@ struct EncodePlan {
     var expectedDuration: Double
     var warnings: [String]
     var passLogPrefix: String?
+    /// The video bitrate the plan asks for, when it asks for one (bitrate, CBR and size-limit modes).
+    var videoKbps: Int?
+
+    /// Deletes the two-pass log files ffmpeg leaves next to `passLogPrefix`.
+    func removePassLogs() {
+        guard let passLogPrefix else { return }
+        for suffix in ["-0.log", "-0.log.mbtree", "-0.log.temp", "-0.log.mbtree.temp"] {
+            try? FileManager.default.removeItem(atPath: passLogPrefix + suffix)
+        }
+    }
 
     func commandLine(binary: String = "ffmpeg") -> String {
         passes
@@ -77,16 +87,6 @@ struct CommandBuilder {
         let trimmed = max(0, end - start)
         let outDuration = copyVideo ? trimmed : trimmed / speed
 
-        // Input
-        var head = ["-hide_banner", "-y"]
-        let forceVPX = !audioOnly && (media?.needsLibvpxDecoder ?? false) && has("libvpx-vp9")
-        if s.useHardwareDecoder && !forceVPX && !copyVideo && !audioOnly { head += ["-hwaccel", "videotoolbox"] }
-        if toneMapper == .videoToolbox { head += ["-init_hw_device", "videotoolbox=sq_vt", "-filter_hw_device", "sq_vt"] }
-        if start > 0 { head += ["-ss", num(start)] }
-        if s.trimEnd > start { head += ["-t", num(s.trimEnd - start)] }
-        if forceVPX { head += ["-c:v", "libvpx-vp9"] }
-        head += ["-i", input.path]
-
         // Video
         let encoder = audioOnly
             ? VideoEncoder(name: "none", args: ["-vn"], pixelFormat: nil)
@@ -101,10 +101,12 @@ struct CommandBuilder {
 
         var videoArgs = encoder.args
         var twoPass = false
+        var videoKbps: Int?
         if !isImage && !audioOnly && !copyVideo && s.videoCodec != .prores {
             let rate = rateControl(s, encoder: encoder.name, outDuration: outDuration, audioKbps: audioPlan.kbps, warnings: &warnings)
             videoArgs += rate.args
             twoPass = rate.twoPass
+            videoKbps = rate.kbps
 
             if s.keyframeIntervalSeconds > 0 {
                 if let fps = s.targetFrameRate ?? media?.frameRate, fps > 0 {
@@ -128,6 +130,31 @@ struct CommandBuilder {
                                    outDuration: outDuration, pixelFormat: encoder.pixelFormat, toneMapper: toneMapper,
                                    tagUntaggedColor: encoder.name.hasSuffix("_videotoolbox") && !hdrSource)
         }
+
+        // Input
+        let forceVPX = !audioOnly && (media?.needsLibvpxDecoder ?? false) && has("libvpx-vp9")
+        // Feeding the media engine straight from the hardware decoder took the same time with 4–7× less
+        // CPU, bit-exact (M4 Pro). Only when frames go through untouched, though: with scaling or other
+        // software filters it was slower, and software encoders gained nothing. Limited to the codecs it
+        // was measured on: others (MPEG-4 Part 2, say) fall back to software but log an error doing so.
+        let autoHardwareDecode = encoder.name.hasSuffix("_videotoolbox") && encoder.pixelFormat == "yuv420p"
+            && ["h264", "hevc"].contains(media?.videoCodec ?? "")
+            && !sourceAlpha && s.alphaMode != .chromaKey && toneMapper == nil
+            && filters.allSatisfy { $0.hasPrefix("format=") || $0.hasPrefix("setparams=") }
+        let hardwareDecode = (s.useHardwareDecoder || autoHardwareDecode) && !forceVPX && !copyVideo && !audioOnly
+        if hardwareDecode && encoder.name.hasSuffix("_videotoolbox") && encoder.pixelFormat == "yuv420p",
+           let last = filters.indices.last, filters[last] == "format=yuv420p" {
+            // The decoder hands over NV12: the same 4:2:0 8-bit picture, without a conversion pass.
+            filters[last] = "format=nv12"
+        }
+        var head = ["-hide_banner", "-y"]
+        if hardwareDecode { head += ["-hwaccel", "videotoolbox"] }
+        if toneMapper == .videoToolbox { head += ["-init_hw_device", "videotoolbox=sq_vt", "-filter_hw_device", "sq_vt"] }
+        if start > 0 { head += ["-ss", num(start)] }
+        if s.trimEnd > start { head += ["-t", num(s.trimEnd - start)] }
+        if forceVPX { head += ["-c:v", "libvpx-vp9"] }
+        head += ["-i", input.path]
+
         let filterArgs = filters.isEmpty ? [] : ["-vf", filters.joined(separator: ",")]
 
         var maps = audioOnly ? ["-map", "0:a:0"] : ["-map", "0:v:0"]
@@ -182,7 +209,7 @@ struct CommandBuilder {
         }
 
         return EncodePlan(passes: passes, output: output, expectedDuration: outDuration,
-                          warnings: warnings, passLogPrefix: logPrefix)
+                          warnings: warnings, passLogPrefix: logPrefix, videoKbps: videoKbps)
     }
 
     // MARK: - Quality mapping
@@ -311,16 +338,16 @@ struct CommandBuilder {
     // MARK: - Rate control
 
     private func rateControl(_ s: EncodeSettings, encoder: String, outDuration: Double, audioKbps: Int,
-                             warnings: inout [String]) -> (args: [String], twoPass: Bool) {
+                             warnings: inout [String]) -> (args: [String], twoPass: Bool, kbps: Int?) {
         let twoPassCapable = ["libx264", "libvpx-vp9", "libaom-av1"].contains(encoder)
         let isHardware = encoder.hasSuffix("_videotoolbox")
 
         switch s.rateControl {
         case .quality:
-            guard let q = Self.qualityParameter(for: s) else { return ([], false) }
+            guard let q = Self.qualityParameter(for: s) else { return ([], false, nil) }
             var args = [q.flag, "\(q.value)"]
             if encoder == "libvpx-vp9" || encoder == "libaom-av1" { args += ["-b:v", "0"] }
-            return (args, false)
+            return (args, false, nil)
 
         case .bitrate:
             var args = ["-b:v", "\(s.videoBitrateKbps)k"]
@@ -330,19 +357,19 @@ struct CommandBuilder {
             } else if s.maxBitrateKbps > 0 {
                 args += ["-bufsize", "\(s.maxBitrateKbps * 2)k"]
             }
-            return (args, s.twoPass && twoPassCapable)
+            return (args, s.twoPass && twoPassCapable, s.videoBitrateKbps)
 
         case .constant:
             let k = "\(s.videoBitrateKbps)k"
             var args = ["-b:v", k, "-maxrate", k, "-bufsize", "\(s.videoBitrateKbps * 2)k"]
             if !isHardware { args += ["-minrate", k] }
             if encoder == "libx264" { args += ["-x264-params", "nal-hrd=cbr"] }
-            return (args, false)
+            return (args, false, s.videoBitrateKbps)
 
         case .targetSize:
             guard outDuration > 0 else {
                 warnings.append("Couldn't read the duration, so the size target can't be worked out. Using 2,500 kbps.")
-                return (["-b:v", "2500k"], false)
+                return (["-b:v", "2500k"], false, 2500)
             }
             // MB here is 1,000,000 bytes, matching how upload limits are usually stated. 5% headroom for the container.
             let totalKbps = s.targetSizeMB * 8000 / outDuration * 0.95
@@ -356,7 +383,7 @@ struct CommandBuilder {
                 let sourceVideo = max(source / 1000 - audioKbps, 50)
                 k = min(k, sourceVideo)
             }
-            return (["-b:v", "\(k)k", "-maxrate", "\(k * 3 / 2)k", "-bufsize", "\(k * 2)k"], twoPassCapable)
+            return (["-b:v", "\(k)k", "-maxrate", "\(k * 3 / 2)k", "-bufsize", "\(k * 2)k"], twoPassCapable, k)
         }
     }
 
