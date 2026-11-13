@@ -7,6 +7,18 @@
     <language>en</language>
 <!-- items -->
     <item>
+      <title>Version 0.3.0</title>
+      <pubDate>Fri, 13 Nov 2026 16:47:10 GMT</pubDate>
+      <sparkle:version>6</sparkle:version>
+      <sparkle:shortVersionString>0.3.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+      <sparkle:fullReleaseNotesLink>https://github.com/devinscottfountain/squish/releases/tag/v0.3.0</sparkle:fullReleaseNotesLink>
+      <description><![CDATA[
+<ul><li><b>Half the download.</b> Squish is now a 20 MB download (was 42 MB) and takes 52 MB on disk (was 85 MB).</li><li><b>Fixed: adding lots of files at once.</b> Dropping more than 64 files could leave every row stuck on "Reading". Large folders now load quickly, in name order.</li><li><b>Lighter on your Mac.</b> With the default Fastest encoder, H.264 and HEVC videos kept at their original size now decode on the media engine too: same result, much less CPU.</li><li><b>Quicker previews and estimates.</b> The live preview appears about twice as fast, and estimates only rerun when a setting that affects the result changes.</li><li><b>More accurate "By file size" previews.</b> They now show the quality the finished file will really have.</li><li><b>A denser queue.</b> Rows are about 30% shorter, so more files fit, and the queue and settings share the window more evenly.</li><li><b>Easier to read.</b> Better contrast in light mode, smoother progress rings, and steadier rows on hover.</li><li><b>New sounds.</b> A softer chime when a batch finishes, a small pluck when you drop files in, and a low two-note sound if a batch fails. Turn them off in <b>Settings › General › Sounds</b>.</li></ul>
+      ]]></description>
+      <enclosure url="https://github.com/devinscottfountain/squish/releases/download/v0.3.0/Squish-0.3.0.dmg" type="application/octet-stream" sparkle:edSignature="ZFV03fI3IMVUahGLjV8EeFLL0Yu5J4wAYlsaQP7u35K7vmEAAByCQCUw/w8SwAAYfGlPuC2osdHSUQH2oxLwAw==" length="19710935" />
+    </item>
+    <item>
       <title>Version 0.2.3</title>
       <pubDate>Thu, 22 Oct 2026 14:53:17 GMT</pubDate>
       <sparkle:version>5</sparkle:version>
