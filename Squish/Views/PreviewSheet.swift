@@ -127,7 +127,7 @@ struct PreviewSheet: View {
         ZStack(alignment: .topLeading) {
             // Neutral inset hairline (pure white at 10% on this dark UI) for consistent depth.
             SplitImageStack(before: before, after: after, size: size, split: split,
-                            interpolation: zoom == .actual ? .none : .high, outlined: true)
+                            interpolation: zoom == .actual ? Image.Interpolation.none : .high, outlined: true)
             divider(height: size.height).offset(x: size.width * split - 14)
             HStack {
                 ScrimTag("Original")
